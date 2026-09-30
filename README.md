@@ -312,9 +312,17 @@ A↔B 检验方法差异（`geometry_mask` vs `rasterize`，同为像元中心�
 
 ## 复现
 
+⚠️ **本仓库不包含大数据**：`data/proc/*.tif`（约 100 MB）、`data/raw/districts_full.json`（约 25 MB）、
+`data/raw/districts_web.json`、`output/assets.json` 都可从公开数据源重建，故未纳入版本库（见 `.gitignore`）。
+因此 **clone 之后不能直接跑 `build_html.py`**，必须先补齐数据。
+
+只想看地图则无需重建：直接打开 `output/中国夜间灯光变化地图.html`（单文件、零外部依赖、可离线）。
+
 ```bash
-PY=/Users/mz/.workbuddy/binaries/python/envs/default/bin/python
-cd lightpollution-cn
+git clone https://github.com/MZqk/nightlights-china.git
+cd nightlights-china
+python3 -m venv .venv && source .venv/bin/activate
+PY=python3                      # 或你自己的解释器路径
 
 # 0. 依赖（scripts/download.py 只用标准库，其余脚本需要下面这些）
 $PY -m pip install -r requirements.txt
@@ -334,6 +342,12 @@ $PY scripts/fetch_districts.py
 $PY scripts/simplify.py
 # 6. 县级分区统计（26 s）
 $PY scripts/zonal_district.py
+# 6b. 波特尔暗夜等级：传播积分，五年各一份（每年约 1.3 s，跑完自动打印等级转移矩阵）
+$PY scripts/bortle_prop.py 2021 2022 2023 2024 2025
+# 6c. 县级波特尔等级中位数（供排行表「等级」列与暗夜筛选）
+$PY scripts/zonal_bortle.py
+# 6d. 查表法对照版（可选；前端已不采用，仅供口径对比）
+$PY scripts/bortle.py
 # 7. 生成单文件 HTML
 $PY scripts/build_html.py
 # 8. 两级口径数值互校（可选，7 s；改过 zonal / zonal_district 后必跑）
@@ -344,7 +358,7 @@ $PY scripts/diag_dataquality.py
 $PY scripts/xcheck.py
 ```
 
-磁盘占用峰值约 3 GB（全球包下载→裁剪→立即删除）。全流程计算约 1–2 分钟（最重的两步：
-县级统计 26 s、两级互校 7 s，其余各步秒级），耗时几乎全在网络：源站单连接约 0.05 MiB/s，
+磁盘占用峰值约 3 GB（全球包下载→裁剪→立即删除）。全流程计算约 2 分钟（最重的几步：
+县级统计 26 s、两级互校 7 s、波特尔传播积分五年合计约 7 s，其余各步秒级），耗时几乎全在网络：源站单连接约 0.05 MiB/s，
 并行加速比实测线性（8 段 0.44 MiB/s ≈ 8.2×），
 16 段外推 ≈0.9 MiB/s，即单年 928 MB 约 18 分钟、五年 1.5 小时量级（首次下载时约为 45 分钟）。
