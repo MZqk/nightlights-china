@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-数据来源与授权说明（本 LICENSE 仅覆盖代码，不覆盖数据）：
-
-- NASA Black Marble（VNP46A4 / VJ146A4）夜间灯光产品由 NASA 发布，属公有领域，
-  可自由使用与再分发，建议在使用时注明 NASA 及产品名。
-- 行政区划边界数据来自阿里云 DataV.GeoAtlas，其使用条款请自行核实，
-  本仓库不为其再分发提供任何授权或担保。
-- 九段线数据（data/raw/nanhai.json）为人工整理，随本项目代码一并提供。
