@@ -1,0 +1,45 @@
+# ============================================================
+# nightlights-china / .gitignore
+# 原则：仓库只保留「源码 + 文档 + 小体积交付物」。
+#       所有大数据与可重建的中间产物一律排除，重建方法见 README「数据链」。
+# ============================================================
+
+# ---------- 系统 / 编辑器 ----------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ---------- 大型数据（可由 download.py + prep.py 重建）----------
+# data/proc/cn_YYYY.tif 共约 100 MB，是 15″ 原始数据重采样到 30″ 的产物。
+# 重建代价：重新下载 5 个年度包（各约 650–930 MB）。
+data/proc/*.tif
+data/proc/*.tiff
+
+# 县级完整边界（25 MB），由 fetch_districts.py 从阿里云 DataV.GeoAtlas 拉取
+data/raw/districts_full.json
+# 简化 + 紧凑编码后的县级边界（1.6 MB），由 simplify.py 生成
+data/raw/districts_web.json
+
+# 原始下载包与交叉验证中间产物
+data/raw/*.zip
+data/raw/cog_*.tif
+
+# ---------- 中间产物 ----------
+# build_html.py 的栅格图层输入，由 pack.py 从 data/proc 的 tif 生成
+output/assets.json
+
+# ---------- 过程 / 诊断截图（非交付物）----------
+# README 引用的 4 张截图不在此列，它们会正常提交。
+output/diag_*.png
+output/bortle_screenshot.png
+output/district_nofill_screenshot.png

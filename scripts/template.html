@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0D1219">
+<meta name="description" content="中国夜间灯光辐亮度变化地图 2021–2025，NASA Black Marble 同源年度合成。栅格显示 120″，县级统计 30″。">
+<title>中国夜间灯光变化地图 2021–2025</title>
+<style>
+/* ============================================================
+   设计令牌 — 移动优先基线 320px，断点 576 / 768 / 992 / 1200
+   中性色阶为冷灰蓝（夜光数据语义），主色取灯光增亮的暖橙
+   ============================================================ */
+:root{
+  color-scheme:dark;
+  /* 中性色阶 n-950 → n-50 */
+  --n-950:#080B10; --n-900:#0D1219; --n-850:#121821; --n-800:#171E29;
+  --n-700:#1F2836; --n-600:#2A3444; --n-500:#3D4A5C; --n-400:#7C8A9E;
+  --n-300:#94A3B8; --n-200:#C3CEDB; --n-100:#E2E8F0; --n-50:#F4F7FB;
+  /* 主色（暖橙 = 增亮语义） */
+  --brand-700:#B4601F; --brand-600:#D9742E; --brand-500:#F0883E;
+  --brand-400:#F5A465; --brand-300:#FBC79B; --on-brand:#1A1005;
+  /* 语义色 */
+  --ok:#3FB950; --warn:#E3B341; --danger:#F85149; --info:#58A6FF;
+  /* 语义别名：面 / 文字 / 线 */
+  --bg:var(--n-900); --surface:var(--n-800); --surface-2:var(--n-850);
+  --line:var(--n-600); --line-soft:var(--n-700);
+  --fg:var(--n-100); --fg-strong:var(--n-50); --fg-dim:var(--n-300); --fg-mute:var(--n-400);
+  /* 字体 */
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC","Noto Sans CJK SC",sans-serif;
+  --fs-2xs:12px; --fs-xs:13px; --fs-sm:14px; --fs-md:16px;
+  --fs-lg:18px; --fs-xl:22px; --fs-2xl:28px;
+  /* 间距（4px 基准） */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-5:20px; --sp-6:24px; --sp-8:32px;
+  /* 圆角 */
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-pill:999px;
+  /* 动效（仅 transform / opacity） */
+  --dur:.22s; --dur-slow:.28s; --ease:cubic-bezier(.32,.72,0,1);
+  /* 触控目标 */
+  --tap:44px;
+  /* 底部抽屉当前露出高度（JS 同步，浮层据此避让） */
+  --sheet-now:46dvh;
+  /* 数据像素底色（JS 同步读取，保持与画布一致） */
+  --void-bg:#080B10; --invalid-bg:#121821; --offcn-bg:#0B0E13;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:var(--font); font-size:var(--fs-sm); line-height:1.6;
+  -webkit-text-size-adjust:100%; overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,p{margin:0}
+:focus-visible{outline:2px solid var(--brand-400);outline-offset:2px;border-radius:var(--r-sm)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* ---------- 布局：移动端 = 全屏地图 + 底部抽屉 ---------- */
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+#main{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--void-bg)}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+canvas.is-drag{cursor:grabbing}
+
+#panel{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;
+  height:92dvh;display:flex;flex-direction:column;
+  background:var(--surface);
+  border-top:1px solid var(--line);
+  border-radius:var(--r-lg) var(--r-lg) 0 0;
+  box-shadow:0 -8px 32px rgba(0,0,0,.45);
+  transform:translateY(calc(100% - 46dvh));
+  transition:transform var(--dur-slow) var(--ease);
+  will-change:transform;
+}
+#panel.no-anim{transition:none}
+#panel[data-state="closed"]{transform:translateY(calc(100% - 62px))}
+#panel[data-state="peek"]{transform:translateY(calc(100% - 46dvh))}
+#panel[data-state="full"]{transform:translateY(0)}
+
+/* 抽屉把手 */
+#phead{
+  flex:none;position:relative;
+  padding:var(--sp-2) var(--sp-4) var(--sp-3);
+  padding-top:calc(var(--sp-2) + env(safe-area-inset-top,0px));
+  border-bottom:1px solid var(--line-soft);
+  background:var(--surface);border-radius:var(--r-lg) var(--r-lg) 0 0;
+  touch-action:none;
+}
+#grip{
+  display:block;width:100%;padding:0 0 var(--sp-2);border:0;background:none;cursor:grab;
+}
+#grip::before{
+  content:"";display:block;width:40px;height:4px;margin:0 auto;
+  border-radius:var(--r-pill);background:var(--n-500);
+}
+h1{font-size:var(--fs-lg);line-height:1.3;font-weight:600;color:var(--fg-strong);letter-spacing:.01em}
+.sub{margin-top:2px;font-size:var(--fs-2xs);color:var(--fg-dim)}
+
+#pbody{
+  flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  padding:var(--sp-4) var(--sp-4) calc(var(--sp-8) + env(safe-area-inset-bottom,0px));
+}
+#pbody::-webkit-scrollbar{width:8px}
+#pbody::-webkit-scrollbar-thumb{background:var(--n-600);border-radius:4px}
+
+/* ---------- 区块与分组标题 ---------- */
+.sec{padding-bottom:var(--sp-5);margin-bottom:var(--sp-5);border-bottom:1px solid var(--line-soft)}
+.sec:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
+.sec>h2{
+  font-size:var(--fs-xs);font-weight:600;color:var(--fg-dim);
+  letter-spacing:.04em;margin-bottom:var(--sp-3);
+}
+
+/* ---------- 字段行 ---------- */
+.field{display:grid;grid-template-columns:56px 1fr;gap:var(--sp-2) var(--sp-3);align-items:center;margin-bottom:var(--sp-3)}
+.field:last-child{margin-bottom:0}
+.field>.k{font-size:var(--fs-xs);color:var(--fg-dim);line-height:1.4}
+.field.has-out{grid-template-columns:56px 1fr 52px}
+.field>output{font-size:var(--fs-2xs);color:var(--fg-dim);text-align:right;font-variant-numeric:tabular-nums}
+.field.col{grid-template-columns:1fr;gap:var(--sp-2)}
+
+/* ---------- 选择框 ---------- */
+select{
+  width:100%;min-height:var(--tap);padding:0 var(--sp-3);
+  font-family:inherit;font-size:var(--fs-xs);color:var(--fg);
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  appearance:none;-webkit-appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--n-300) 50%),linear-gradient(135deg,var(--n-300) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+  transition:border-color var(--dur) var(--ease);
+}
+select:hover{border-color:var(--n-500)}
+
+/* ---------- 分段控件 ---------- */
+.seg{display:flex;gap:2px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md)}
+.seg button{
+  flex:1;min-height:38px;padding:0 var(--sp-2);border:0;border-radius:7px;
+  background:transparent;color:var(--fg-dim);
+  font-family:inherit;font-size:var(--fs-xs);font-weight:500;cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.seg button:hover{color:var(--fg)}
+.seg button[aria-pressed="true"]{background:var(--brand-500);color:var(--on-brand);font-weight:600}
+.seg button[aria-pressed="true"]:hover{background:var(--brand-400)}
+@media (hover:none){ .seg button{min-height:var(--tap)} }
+
+/* ---------- 开关按钮 ---------- */
+.toggle{
+  min-height:var(--tap);width:100%;padding:0 var(--sp-3);
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);
+  background:var(--surface-2);color:var(--fg-dim);
+  border:1px solid var(--line);border-radius:var(--r-sm);
+  font-family:inherit;font-size:var(--fs-xs);cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease),border-color var(--dur) var(--ease);
+}
+.toggle::after{
+  content:"";width:34px;height:20px;flex:none;border-radius:var(--r-pill);
+  background-color:var(--n-600);
+  background-image:radial-gradient(circle at 10px 50%,var(--n-200) 6px,transparent 6.5px);
+  transition:background-color var(--dur) var(--ease),background-image var(--dur) var(--ease);
+}
+.toggle[aria-pressed="true"]{color:var(--fg);border-color:var(--brand-600);background:rgba(240,136,62,.10)}
+.toggle[aria-pressed="true"]::after{
+  background-color:var(--brand-500);
+  background-image:radial-gradient(circle at 24px 50%,var(--on-brand) 6px,transparent 6.5px);
+}
+.toggle>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- 滑杆 ---------- */
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:var(--tap);background:transparent;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:var(--r-pill);background:var(--n-600)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:20px;height:20px;margin-top:-8px;border-radius:50%;
+  background:var(--brand-500);border:2px solid var(--n-900);
+  transition:transform var(--dur) var(--ease);
+}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]::-moz-range-track{height:4px;border-radius:var(--r-pill);background:var(--n-600)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--brand-500);border:2px solid var(--n-900)}
+
+/* ---------- 图例 ---------- */
+#legend{height:14px;border-radius:var(--r-sm);margin-bottom:var(--sp-2);border:1px solid var(--line-soft)}
+#legend.bi{height:auto;border:0}          /* 双变量: 2D 图例矩阵, 不适用单条色带 */
+/* 刻度位置由 JS 按色标真实映射(lumT / sgnT)计算后绝对定位, 不能等距摆放 */
+.ticks{position:relative;height:16px;font-size:var(--fs-2xs);color:var(--fg-dim);font-variant-numeric:tabular-nums}
+.ticks span{position:absolute;top:0;white-space:nowrap;transform:translateX(-50%)}
+.tierkey{display:flex;flex-wrap:wrap;gap:2px var(--sp-3);margin-top:2px;font-size:var(--fs-2xs);color:var(--fg-dim)}
+.tierkey[hidden]{display:none}          /* 作者样式的 display:flex 会盖掉 UA 的 [hidden] */
+.tierkey span{display:inline-flex;align-items:center;gap:5px}
+.tierkey i{width:10px;height:10px;border-radius:2px;flex:none;vertical-align:middle}
+.tierkey i.hatch-sw{width:14px;height:9px;border-radius:0;margin-right:0}
+.note{margin-top:var(--sp-2);font-size:var(--fs-xs);line-height:1.7;color:var(--fg-dim)}
+.note b{color:var(--fg);font-weight:600}
+
+/* ---------- 折迭区块 ---------- */
+details.acc{
+  border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--surface-2);margin-bottom:var(--sp-2);overflow:hidden;
+}
+details.acc:last-child{margin-bottom:0}
+details.acc>summary{
+  list-style:none;cursor:pointer;min-height:var(--tap);
+  padding:var(--sp-3);display:flex;align-items:center;gap:var(--sp-2);
+  font-size:var(--fs-xs);font-weight:600;color:var(--fg);
+}
+details.acc>summary::-webkit-details-marker{display:none}
+details.acc>summary::after{
+  content:"";margin-left:auto;flex:none;width:8px;height:8px;
+  border-right:2px solid var(--fg-dim);border-bottom:2px solid var(--fg-dim);
+  transform:rotate(45deg);transform-origin:center;
+  transition:transform var(--dur) var(--ease);
+}
+details.acc[open]>summary::after{transform:rotate(-135deg)}
+details.acc[open]>summary{border-bottom:1px solid var(--line-soft)}
+.acc-body{padding:var(--sp-3);font-size:var(--fs-xs);line-height:1.75;color:var(--fg-dim)}
+.acc-body b{color:var(--fg);font-weight:600}
+details.acc.warn{border-left:3px solid var(--warn)}
+details.acc.warn>summary{color:var(--warn)}
+
+/* ---------- 排行表 ---------- */
+#rank{width:100%;border-collapse:collapse;font-size:var(--fs-2xs)}
+#rank th,#rank td{padding:6px 3px;text-align:right;border-bottom:1px solid var(--line-soft)}
+#rank th:first-child,#rank td:first-child{text-align:left}
+#rank th{
+  position:sticky;top:0;z-index:1;background:var(--surface);
+  color:var(--fg-dim);font-weight:500;font-size:var(--fs-2xs);white-space:nowrap;
+}
+#rank td{font-variant-numeric:tabular-nums;color:var(--fg)}
+#rank tbody tr{transition:background var(--dur) var(--ease)}
+@media (hover:hover){ #rank tbody tr:hover{background:var(--n-850)} }
+#rank .pname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:9.5em}
+#rank.no-lv .lvcol{display:none}          /* 省级视图无波特尔等级统计, 整列隐藏 */
+#rank td.lvcol{white-space:nowrap}
+.bar{display:block;height:9px;border-radius:2px}
+.bar.pos{background:linear-gradient(90deg,var(--brand-700),var(--brand-500))}
+.bar.neg{background:linear-gradient(90deg,#2A5AA8,#3C78D8)}
+/* 县级样本档分组标题与空档行(thead 的 sticky 不能继承到这些行) */
+#rank .band th{position:static;background:none;z-index:auto;
+  text-align:left;color:var(--fg-dim);font-weight:600;font-size:var(--fs-2xs);
+  padding:10px 3px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
+#rank .empty td{text-align:left;color:var(--fg-mute);padding:4px 3px}
+@media (hover:hover){ #rank tbody tr.band:hover,#rank tbody tr.empty:hover{background:none} }
+
+/* ---------- 地图浮层 ---------- */
+#mhead{
+  position:absolute;top:calc(var(--sp-2) + env(safe-area-inset-top,0px));left:var(--sp-2);
+  z-index:5;display:flex;align-items:center;gap:var(--sp-2);
+  max-width:calc(100% - var(--sp-4));
+  padding:6px var(--sp-3);border-radius:var(--r-pill);
+  background:rgba(13,18,25,.88);border:1px solid var(--line);
+  font-size:var(--fs-2xs);color:var(--fg-dim);pointer-events:none;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+#mhead b{color:var(--fg-strong);font-weight:600;white-space:nowrap}
+
+#readout{
+  position:absolute;left:var(--sp-3);right:var(--sp-3);
+  bottom:calc(var(--sheet-now,46dvh) + var(--sp-3));z-index:6;
+  padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
+  background:rgba(13,18,25,.92);border:1px solid var(--line);
+  font-size:var(--fs-2xs);line-height:1.55;font-variant-numeric:tabular-nums;
+  pointer-events:none;opacity:0;transform:translateY(4px);
+  transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+#readout.show{opacity:1;transform:none}
+#readout b{color:var(--fg-strong)}
+#readout .mute{color:var(--fg-mute)}
+#readout .ro-h{display:block;color:var(--fg-dim);font-weight:500;margin-bottom:2px}
+#readout .ro-blk+.ro-blk{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft)}
+.hatch-sw{display:inline-block;width:14px;height:9px;vertical-align:middle;margin-right:3px;
+  border:1px solid var(--line-soft);
+  background:repeating-linear-gradient(45deg,rgba(180,190,205,.34) 0 1px,transparent 1px 4px),rgba(58,66,80,.26)}
+
+#zoomctl{
+  position:absolute;right:var(--sp-3);bottom:calc(var(--sheet-now,46dvh) + var(--sp-3));z-index:6;
+  display:flex;flex-direction:column;gap:var(--sp-2);
+  transition:bottom var(--dur-slow) var(--ease);
+}
+.zbtn{
+  width:40px;height:40px;border-radius:50%;
+  display:grid;place-items:center;
+  background:rgba(23,30,41,.92);border:1px solid var(--line);color:var(--fg);
+  font-family:inherit;font-size:var(--fs-md);line-height:1;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:transform var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.zbtn:hover{background:var(--n-700)}
+.zbtn:active{transform:scale(.94)}
+.zbtn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+#hint{
+  position:absolute;right:var(--sp-3);top:calc(52px + env(safe-area-inset-top,0px));z-index:5;
+  padding:6px var(--sp-3);border-radius:var(--r-pill);
+  background:rgba(13,18,25,.85);border:1px solid var(--line);
+  font-size:var(--fs-2xs);color:var(--fg-dim);pointer-events:none;
+  animation:hintFade 6s var(--ease) forwards;
+}
+@keyframes hintFade{0%,70%{opacity:1}100%{opacity:0}}
+
+/* ---------- 加载态 / 轻提示 ---------- */
+#boot{
+  position:absolute;inset:0;z-index:9;display:grid;place-items:center;
+  background:var(--void-bg);transition:opacity var(--dur) var(--ease);
+}
+#boot.done{opacity:0;pointer-events:none}
+#boot .boot-in{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4);max-width:min(90%,380px)}
+#boot p{font-size:var(--fs-sm);color:var(--fg-dim);font-variant-numeric:tabular-nums;line-height:1.5}
+.boot-ring{
+  width:22px;height:22px;flex:none;border-radius:50%;
+  border:2px solid var(--n-600);border-top-color:var(--brand-500);
+  animation:bootSpin .9s linear infinite;
+}
+@keyframes bootSpin{to{transform:rotate(360deg)}}
+#boot.err .boot-ring{display:none}
+#boot.err p{color:var(--danger)}
+.noscript{color:var(--fg-dim);font-size:var(--fs-sm);text-align:center}
+#toast{
+  position:absolute;left:50%;z-index:8;
+  bottom:calc(var(--sheet-now,46dvh) + var(--sp-4));
+  transform:translate(-50%,6px);max-width:min(90%,340px);
+  padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
+  background:rgba(13,18,25,.95);border:1px solid var(--line);color:var(--fg);
+  font-size:var(--fs-xs);text-align:center;opacity:0;pointer-events:none;
+  transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ---------- 断点：576px 起，抽屉内两列 ---------- */
+@media (min-width:576px){
+  .field{grid-template-columns:64px 1fr}
+  .field.has-out{grid-template-columns:64px 1fr 56px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2) var(--sp-4)}
+  h1{font-size:var(--fs-xl)}
+}
+
+/* ---------- 断点：992px 起，抽屉转为左侧固定侧栏 ---------- */
+@media (min-width:992px){
+  :root{--sheet-now:0px}
+  #app{flex-direction:row}
+  #panel{
+    position:static;flex:none;width:344px;height:100%;z-index:auto;
+    border-top:0;border-right:1px solid var(--line);border-radius:0;
+    box-shadow:none;transform:none !important;transition:none;
+  }
+  #phead{padding:var(--sp-5) var(--sp-5) var(--sp-4);border-radius:0}
+  #grip{display:none}
+  #pbody{padding:var(--sp-5)}
+  #mhead{display:none}
+  #readout{left:var(--sp-3);right:auto;bottom:var(--sp-3);width:290px}
+  #hint{top:var(--sp-3);animation:none}
+  #panel{width:344px}
+}
+
+/* ---------- 断点：1200px 起，加宽侧栏 ---------- */
+@media (min-width:1200px){
+  #panel{width:380px}
+  #pbody{padding:var(--sp-6)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+  .boot-ring{animation:none !important}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="main">
+    <canvas id="cv" role="img" aria-label="中国夜间灯光辐亮度变化栅格地图，可缩放平移"></canvas>
+    <div id="mhead"><b>中国夜间灯光变化</b><span id="mhState">—</span></div>
+    <div id="readout" aria-live="off"></div>
+    <div id="zoomctl">
+      <button class="zbtn" id="zIn" aria-label="放大"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="zbtn" id="zOut" aria-label="缩小"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="zbtn" id="zFit" aria-label="复位视图"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
+    <div id="hint">滚轮缩放 · 拖拽平移 · 双击复位</div>
+    <div id="boot" role="status" aria-live="polite">
+      <div class="boot-in">
+        <div class="boot-ring" aria-hidden="true"></div>
+        <p id="bootMsg">正在解码年度栅格…</p>
+      </div>
+    </div>
+    <div id="toast" role="alert" aria-live="assertive"></div>
+    <noscript><div class="boot-in noscript">本页为交互式地图，需要启用 JavaScript 才能显示。</div></noscript>
+  </div>
+
+  <aside id="panel" data-state="peek" aria-label="地图控制面板">
+    <div id="phead">
+      <button type="button" id="grip" aria-label="展开或收起控制面板" aria-expanded="true"></button>
+      <div>
+        <h1>中国夜间灯光变化地图</h1>
+        <p class="sub">VIIRS 年度合成 · 2021–2025 · 栅格 120″ / 县级统计 30″ · 2875 县市区</p>
+      </div>
+    </div>
+
+    <div id="pbody">
+      <section class="sec">
+        <h2>对比年份</h2>
+        <div class="field"><span class="k">基准年</span><select id="y1" aria-label="基准年份"></select></div>
+        <div class="field"><span class="k">对比年</span><select id="y2" aria-label="对比年份"></select></div>
+        <div class="field"><span class="k">图层</span>
+          <div class="seg" role="group" aria-label="图层模式">
+            <button id="mDiff" aria-pressed="true">变化图</button>
+            <button id="mAbs" aria-pressed="false">亮度图</button>
+            <button id="mBortle" aria-pressed="false" title="波特尔暗夜等级（卫星估算，非地面实测）">波特尔</button>
+            <button id="mBi" aria-pressed="false" title="双变量：波特尔等级（色相）× 变化（冷暖明暗）">双变量</button>
+          </div>
+        </div>
+        <div class="field" id="metricRow"><span class="k">指标</span>
+          <div class="seg" role="group" aria-label="变化指标">
+            <button id="uLog" aria-pressed="true">对数比值</button>
+            <button id="uRaw" aria-pressed="false">绝对差</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <h2>图例</h2>
+        <div id="legend" role="img" aria-label="色标"></div>
+        <div class="ticks" id="ticks"></div>
+        <div class="tierkey" id="tierKey" hidden></div>
+        <p class="note" id="legendNote"></p>
+      </section>
+
+      <section class="sec">
+        <h2>显示</h2>
+        <div class="field"><span class="k">行政区层级</span>
+          <div class="seg" role="group" aria-label="行政区层级">
+            <button id="lvProv" aria-pressed="true">省级</button>
+            <button id="lvDist" aria-pressed="false">县市区</button>
+          </div>
+        </div>
+        <div class="field has-out"><span class="k">界线</span>
+          <input type="range" id="bnd" min="0" max="100" value="55" aria-label="行政区界线透明度">
+          <output id="bndV">55%</output>
+        </div>
+        <div class="field has-out"><span class="k">γ 曲线</span>
+          <input type="range" id="gam" min="40" max="220" value="100" aria-label="伽马曲线">
+          <output id="gamV">1.00</output>
+        </div>
+        <div class="field has-out"><span class="k">信号下限</span>
+          <input type="range" id="sig" min="5" max="60" value="15" aria-label="有效信号下限">
+          <output id="sigV">1.5</output>
+        </div>
+        <div class="grid2">
+          <button type="button" class="toggle" id="lblBtn" aria-pressed="true"><span>省名 / 城市标注</span></button>
+          <button type="button" class="toggle" id="cnBtn" aria-pressed="false"><span>仅显示中国境内</span></button>
+        </div>
+        <div class="field" id="distRow" style="display:none"><span class="k">县界</span>
+          <div class="seg" role="group" aria-label="县界显示方式">
+            <button id="bndHide" aria-pressed="false">隐藏</button>
+            <button id="bndHover" aria-pressed="true">悬停</button>
+            <button id="bndAll" aria-pressed="false">全部</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <h2 id="rankTitle">省级变化排行</h2>
+        <div class="field"><span class="k">排行方向</span>
+          <div class="seg" role="group" aria-label="排行方向">
+            <button id="rkUp" aria-pressed="true">增亮</button>
+            <button id="rkDown" aria-pressed="false">变暗</button>
+          </div>
+        </div>
+        <div class="field" id="lvRow" style="display:none"><span class="k">暗夜筛选</span>
+          <div class="seg" role="group" aria-label="按波特尔等级筛选">
+            <button id="lvAll" aria-pressed="true">全部</button>
+            <button id="lv5" aria-pressed="false">≤5 级</button>
+            <button id="lv4" aria-pressed="false">≤4 级</button>
+          </div>
+        </div>
+        <p class="note" id="rankSub" style="margin-top:0"></p>
+        <table id="rank">
+          <thead><tr>
+            <th scope="col" id="cnameHead">省 / 区</th>
+            <th scope="col" class="lvcol">等级</th>
+            <th scope="col">Δlog</th>
+            <th scope="col">总亮度比</th>
+            <th scope="col"><span class="sr-only">变化幅度</span></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="note" id="rankNote"></p>
+      </section>
+
+      <section class="sec">
+        <h2>说明与局限</h2>
+        <details class="acc warn" open>
+          <summary>⚠️ 高反射伪信号（务必阅读）</summary>
+          <div class="acc-body">
+            青藏高原与荒漠无人区的像元辐亮度异常偏高——五年平均：
+            <b>青海格尔木 84、西藏阿里 61 nW·cm⁻²·sr⁻¹</b>，而杭州核心仅 76、拉萨市区 62。
+            无人区与城市核心同量级，<b>数值本身即不合理</b>。成因是积雪／盐湖／裸岩把月光反射回卫星——
+            VIIRS 测的是地表向上辐亮度，无法区分人工光源与高反射地表。<br><br>
+            <b>形态判据也支持这一点：</b>西藏亮像元（&gt;20 nW）的<b>孤立点占比 13.2%</b>，是浙江（4.9%）的 2.7 倍；
+            <b>最大连片团块仅 116 个像元</b>，而浙江为 1,377（约 1/12）。城市是连片团块，这些是零散点。<br><br>
+            因此<b>西藏的总亮度比 ×1.58 不能直接采信</b>，内蒙古、黑龙江、青海同样可能被污染。
+            相对可信的是东部省份（浙江 ×1.25、江西 ×1.25），其亮像元形态连片、孤立率低。
+          </div>
+        </details>
+        <details class="acc warn">
+          <summary>⚠️ 口径警告：这不是「光污染」地图</summary>
+          <div class="acc-body">
+            VIIRS 测的是<b>地表向上辐亮度</b>，不是天顶天空亮度（mag/arcsec²）。二者需经大气散射传播模型换算，本图<b>未</b>做该换算，
+            因此严格说这是「<b>夜间灯光辐亮度变化图</b>」而非「光污染变化图」。已知失真源：
+            ① VIIRS 蓝波段灵敏度低，钠灯→LED 改造会造成<b>假性变暗</b>；
+            ② 卫星约地方时 01:30 过境，午夜后熄灯行为与居民实际感受不同步；
+            ③ 云量/气溶胶/雪盖年际波动。
+          </div>
+        </details>
+        <details class="acc warn">
+          <summary>⚠️ 县级口径的三条硬限制（看县级视图前必读）</summary>
+          <div class="acc-body">
+            <b>1. 不是所有县市区都够格统计，城市中心城区普遍不够。</b>2875 个县级单元中，有效像元（≥1.5 nW）
+            中位数仅 <b>145 个</b>（30″ 网格 ≈ 0.86 km²/像元）。面积越小越不可测：
+            <b>上海黄浦区仅 29 个有效像元</b>、虹口 32、静安 49、澳门望德堂区 1；而上海浦东新区 2,063 个。
+            因此上海只有外围 9 个区进排行，中心城区全部灰显——<b>不是它们没变化，是尺子不够细</b>。
+            最终 505 个单元达标，覆盖全国 <b>44.6%</b> 的有效像元。若需覆盖中心城区，须改用 15″ 原始网格
+            （像元数 ×4，黄浦区 29→116）重算，本图未做。<br><br>
+
+            <b>2. 三重门限拦的是伪信号，不是小县。</b>2021→2025 全国县级排行原始第一是
+            <b>黑龙江肇源县 ×36.66</b>——它有效像元 574、均值 27 nW，前两道门限全过；
+            但它所属的最大连片亮区只有 176 像元（长三角连片为 4.3 万），是<b>大庆油田火炬</b>而非城市照明。
+            本图据此把「所属连片亮区规模」作为第三道门限，宁少不误导。剔除后榜首为尉氏县 ×2.80、
+            济阳区 ×2.25、安新县 ×1.87（雄安）。<br><br>
+
+            <b>3. 边界时点为近年快照，与灯光年份不完全对齐。</b>县级边界取自阿里云 DataV.GeoAtlas（近年区划），
+            灯光为 2021–2025，期间发生撤县设区／设市（如 2021 年杭州区划调整）会造成前后口径不一致。
+            另有 34 个「直筒子市」（东莞、中山、儋州、嘉峪关、兵团市等）与台湾省无县级下级，
+            已按地级／省级整体作为 1 个单元处理，故总数 2875 而非 2843。
+          </div>
+        </details>
+        <details class="acc">
+          <summary>方法与数据处理</summary>
+          <div class="acc-body">
+            <b>数据：</b>2021–2025 <b>全程同源</b>，均为 NASA Black Marble 年度夜间灯光合成产品
+            （VNP46A4 2021–2023 / VJ146A4 2024–2025），经 lightpollutionmap.info 分发获取。
+            五年同法处理，<b>不做跨产品差值</b>。<br><br>
+            <b>为何坚持同源：</b>曾评估用另一套轻量数据承担历史年份以省带宽，2024 年重叠交叉验证的结果是——
+            两产品读数比值中位 <b>9.89</b>，且比值随亮度区间变化，5%–95% 分位跨度达 <b>6.0–17.2</b>，
+            线性定标无法消除；有效像元数也相差 15–20%。混合源做年度差值会引入空间不均匀的假信号，故全部重下同源数据。<br><br>
+            <b>指标：</b>对数比值 Δ = log₁₀((L₂+ε)/(L₁+ε))，ε=0.1 nW·cm⁻²·sr⁻¹。Δ=+0.3 表示亮度增至 2 倍，−0.3 表示降至 1/2。<br><br>
+            <b>有效像元：</b>仅当 max(L₁,L₂) ≥ <b>1.5</b> nW·cm⁻²·sr⁻¹ 才计入（上方「信号下限」可调）。<br><br>
+            <b>为何需要下限：</b>实测发现荒漠无人区（塔克拉玛干、藏北）出现大面积"变亮"信号，那是<b>小基数伪信号</b>——
+            这些像元亮度仅 0.5–2 nW（无人工光源，来自沙尘反射/气溶胶/传感器噪声），年度波动即造成数倍"对数变化"。
+            提高下限可抑制此类伪信号。默认 1.5 nW 已滤除绝大部分荒漠噪声；调到 0.5 nW 即可看到该现象本身。<br><br>
+
+            <b>两套分辨率（容易误读）：</b>县级填色与排行在 <b>30″（≈925 m）</b> 网格完成；
+            浏览器底图与光标逐点读数是 <b>120″</b>——原始 30″ 栅格经 FACTOR=4 块平均降采样而来
+            （7560×6120 → 1890×1530，五年合计仅 1.6 MB，否则整图解码需近 1 GB 内存）。
+            两者是<b>同源数据的不同空间聚合层级</b>：光标读数是单个 120″ 像元值，
+            县级数值是该单元全部 30″ 有效像元的<b>总和之比</b>。含义不同，<b>不应逐值对照</b>。
+          </div>
+        </details>
+      </section>
+    </div>
+  </aside>
+</div>
+<script>
+const P = __PAYLOAD__, S = __STATS__, PROV = __PROV__, ND = __NINEDASH__;
+const DG = "__DGEO__", DM = __DMETA__, DS = __DSTAT__;
+const BL = __BORTLE__;   // 波特尔等级图层(传播积分版, 已计 300km 天空辉光) {years,w,h,levels,mags,method,layers:{year:png}}
+const W = P.w, H = P.h, [WEST,SOUTH,EAST,NORTH] = P.bbox, YEARS = P.years;
+let MIN_SIG = 1.5;                 // 有效信号下限, 可调
+const EPS = 0.1;
+
+/* ---------- 县级边界解码: base64 -> varint(zigzag delta) -> 环数组 ----------
+   不用 gzip/DecompressionStream: 该 API 在 Safari<16.4 / Firefox<113 缺失。
+   自研 delta+zigzag varint 编码, 2875 单元 / 27 万点 -> base64 1.25 MB。*/
+let DIST = null;                   // [ [Float32Array(x0,y0,x1,y1,...), ...], ... ]
+function decodeDist(){
+  const bin = atob(DG);
+  const u = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i);
+  let p = 0;
+  const rv = ()=>{ let r=0,s=1,b; do{ b=u[p++]; r+=(b&0x7f)*s; s*=128; }while(b&0x80); return r; };
+  const rz = ()=>{ const v=rv(); return (v%2 ? -(v+1)/2 : v/2); };
+  const Q = 1e4, out = new Array(DM.length);
+  for(let i=0;i<DM.length;i++){
+    const nr = rv(), rings = new Array(nr);
+    for(let r=0;r<nr;r++){
+      const np = rv(), a = new Float32Array(np*2);
+      let x = 0, y = 0;
+      for(let j=0;j<np;j++){ x += rz(); y += rz(); a[j*2]=x/Q; a[j*2+1]=y/Q; }
+      rings[r] = a;
+    }
+    out[i] = rings;
+  }
+  return out;
+}
+/* 县级路径缓存: 建在图像坐标系(0..W / 0..H), 与缩放平移解耦, 每帧复用。
+   2875 单元 / 约 27 万顶点, 解码后一次建好(几十 ms); 若逐帧重建, 悬停/拖拽都会卡。 */
+let DPATH = null;
+function buildPaths(){
+  const sx=W/(EAST-WEST), sy=H/(NORTH-SOUTH);
+  DPATH = new Array(DM.length);
+  for(let i=0;i<DM.length;i++){
+    const p=new Path2D();
+    for(const ring of DIST[i]){
+      for(let j=0;j<ring.length;j+=2){
+        const x=(ring[j]-WEST)*sx, y=(NORTH-ring[j+1])*sy;
+        j ? p.lineTo(x,y) : p.moveTo(x,y);
+      }
+      p.closePath();
+    }
+    DPATH[i]=p;
+  }
+}
+function ensureDist(){
+  if(!DIST) DIST=decodeDist();
+  if(!DPATH) buildPaths();
+}
+// 当前年份对在 DS.pairs 中的下标
+function pairIdx(){
+  for(let i=0;i<DS.pairs.length;i++) if(DS.pairs[i][0]===y1 && DS.pairs[i][1]===y2) return i;
+  return -1;
+}
+// 置信档: 2=高 1=中 0=低(灰显, 不进排行)
+function tierOf(u, pi){
+  const cy = DS.years.indexOf(DS.pairs[pi][1]);
+  const px = u.v[pi], mL = u.m[pi], cl = u.k[cy];
+  if(px>=1000 && mL>=5 && cl>=2000) return 2;
+  if(px>=200  && mL>=3 && cl>=500)  return 1;
+  return 0;
+}
+// 地图显示档 -> 最低可见置信档。注意: 只控制地图填色, 不参与排行筛选
+/* 置信档过滤（CONF_MIN / confidenceVisible）已随 choropleth 填色一并移除：
+   地图不再按置信档过滤显示，置信信息改由悬停读数与排行表行首圆点承载。 */
+// 排行样本档: 只按有效像元数分档, 与置信档正交(同一样本档内可能横跨高中低置信)
+const RANK_BANDS=[
+  {id:'A', min:1000, max:Infinity, label:'≥1,000'},
+  {id:'B', min:500,  max:999,      label:'500–999'},
+  {id:'C', min:200,  max:499,      label:'200–499'}
+];
+const RANK_LIMIT=10;
+const sampleBand = px => RANK_BANDS.find(b=>px>=b.min && px<=b.max);
+
+// ---- 从设计令牌读取画布底色，避免硬编码色值散落 ----
+const CSSV = getComputedStyle(document.documentElement);
+function hex2rgb(h){
+  h = (h||'').trim().replace('#','');
+  if(h.length!==6) return [8,11,16];
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+const CVOID  = CSSV.getPropertyValue('--void-bg').trim()   || '#080B10';
+const CINV   = hex2rgb(CSSV.getPropertyValue('--invalid-bg'));
+const COFFCN = hex2rgb(CSSV.getPropertyValue('--offcn-bg'));
+const FONT   = CSSV.getPropertyValue('--font').trim();
+
+// ---- 解码 16bit 数值 PNG (R=高字节, G=低字节) ----
+// 像元值本就是 (R<<8)|G 的整数 ∈ [0,65535], 用 Uint16 即可: 五年 58 MB -> 29 MB
+const data = {};       // year -> Uint16Array
+let MASK = null;       // Uint8Array, 255=境内
+function decodeMask(){
+  return new Promise((res,rej)=>{
+    const im = new Image();
+    im.onerror = ()=>rej(new Error('境内掩膜解码失败'));   // 此前无失败路径, 坏图会永久挂起
+    im.onload = ()=>{
+      const c=document.createElement('canvas'); c.width=W; c.height=H;
+      const g=c.getContext('2d'); g.drawImage(im,0,0);
+      const d=g.getImageData(0,0,W,H).data;
+      MASK=new Uint8Array(W*H);
+      for(let i=0,j=0;i<MASK.length;i++,j+=4) MASK[i]=d[j];
+      c.width=c.height=0;                                  // 释放中间画布
+      res();
+    };
+    im.src='data:image/png;base64,'+P.mask;
+  });
+}
+function decode(year){
+  return new Promise((res,rej)=>{
+    const im = new Image();
+    im.onerror = ()=>rej(new Error(year+' 年栅格解码失败'));
+    im.onload = ()=>{
+      const c = document.createElement('canvas'); c.width=W; c.height=H;
+      const g = c.getContext('2d'); g.drawImage(im,0,0);
+      const d = g.getImageData(0,0,W,H).data;
+      const a = new Uint16Array(W*H);
+      for(let i=0,j=0;i<a.length;i++,j+=4) a[i] = (d[j]<<8) | d[j+1];
+      data[year]=a; c.width=c.height=0;
+      res();
+    };
+    im.src = 'data:image/png;base64,' + P.img[year];
+  });
+}
+
+/* ---------- 波特尔等级图层解码（按年） ----------
+   8bit 灰度 PNG: 像素值即等级 1–9; 0 = 高反射伪信号/境外(灰显)。
+   与栅格数据同样大小(1890×1530)。悬停读数要 y1 与 y2 两年, 故按年缓存,
+   年份切换时增量解码, 已解过的年份不重复解。 */
+const BORTC = {};                  // year -> Uint8Array
+const BORT_PEND = {};              // year -> Promise(去重, 避免并发重复解码)
+function decodeBortleYear(year){
+  if(BORTC[year]) return Promise.resolve(BORTC[year]);
+  if(BORT_PEND[year]) return BORT_PEND[year];
+  const src = BL && BL.layers && BL.layers[year];
+  if(!src) return Promise.reject(new Error('无 ' + year + ' 年波特尔图层'));
+  const p = new Promise((res,rej)=>{
+    const im = new Image();
+    im.onerror = ()=>rej(new Error(year + ' 年波特尔图层解码失败'));
+    im.onload = ()=>{
+      const c = document.createElement('canvas'); c.width=W; c.height=H;
+      const g = c.getContext('2d'); g.drawImage(im,0,0);
+      const d = g.getImageData(0,0,W,H).data;
+      const a = new Uint8Array(W*H);
+      for(let i=0,j=0;i<a.length;i++,j+=4) a[i]=d[j];
+      BORTC[year]=a; c.width=c.height=0; res(a);
+    };
+    im.src = 'data:image/png;base64,' + src;
+  });
+  BORT_PEND[year]=p;
+  return p;
+}
+
+// ---- 加载态与轻提示 ----
+const bootEl=document.getElementById('boot'), bootMsgEl=document.getElementById('bootMsg');
+function showBoot(msg, err){
+  bootEl.classList.remove('done');
+  bootEl.classList.toggle('err', !!err);
+  bootMsgEl.textContent = msg;
+}
+function hideBoot(){ bootEl.classList.add('done'); }
+let toastTimer=0;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'), 3200);
+}
+
+// ---- 色标 ----
+/* 复用同一个输出数组: 289 万像素的循环里每像素新建数组会造成明显 GC 压力。
+   调用方一律立即取值, 不缓存返回值。 */
+const _mix=[0,0,0];
+function mix(stops, t){
+  let s0=stops[0], s1=stops[0], k=0, last=stops[stops.length-1];
+  if(t<=stops[0][0]){ s0=s1=stops[0]; }
+  else if(t>=last[0]){ s0=s1=last; }
+  else {
+    for(let i=0;i<stops.length-1;i++){
+      const p0=stops[i][0], p1=stops[i+1][0];
+      if(t>=p0 && t<=p1){ s0=stops[i]; s1=stops[i+1]; k=(t-p0)/(p1-p0); break; }
+    }
+  }
+  const c0=s0[1], c1=s1[1];
+  _mix[0]=c0[0]+(c1[0]-c0[0])*k;
+  _mix[1]=c0[1]+(c1[1]-c0[1])*k;
+  _mix[2]=c0[2]+(c1[2]-c0[2])*k;
+  return _mix;
+}
+const DIV = [[-1,[26,86,168]],[-0.45,[48,104,176]],[-0.15,[52,72,104]],[0,[38,41,49]],
+             [0.15,[104,80,58]],[0.45,[214,104,44]],[1,[246,58,38]]];
+const LUM = [[0,[10,12,17]],[0.12,[18,30,62]],[0.3,[48,84,150]],[0.5,[120,140,170]],
+             [0.68,[206,170,92]],[0.85,[246,214,130]],[1,[255,252,236]]];
+/* 波特尔 1–9 级配色: 索引即等级, 0 = 高反射伪信号/境外(灰显)。
+   查表法不产生 2 级, 但配色保留占位以免索引错位。 */
+const BORT_COL = [[96,96,102],[10,14,30],[16,32,70],[26,66,124],[56,108,152],
+                  [116,136,142],[186,150,92],[232,166,68],[246,206,120],[252,238,214]];
+/* ---------- 双变量色表: 波特尔等级(色相) × 变化(冷暖明暗) ----------
+   等级 10 档(0=存疑灰 + 1..9) × 变化 33 档, 预计算成扁平 Uint8Array。
+   逐像素循环有 289 万次迭代, 现算 HSV 转换不可接受, 故启动时算一次、运行时 O(1) 查表。
+   编码规则: 等级定色相与基础明度; 变化 t∈[-1,1] 提升/压低明度与饱和度并微调色相
+   (变亮=更亮更艳更暖, 变暗=更暗更灰更冷), 使"暗夜残余 + 正在变亮"一眼可辨。 */
+const BIT_N = 33;
+const BI_COL = (()=>{
+  const a = new Uint8Array(10 * BIT_N * 3);
+  const hsv2rgb = (h,s,v)=>{
+    const i = Math.floor(h*6), f = h*6-i;
+    const p = v*(1-s), q = v*(1-f*s), w = v*(1-(1-f)*s);
+    const m = [[v,w,p],[q,v,p],[p,v,w],[p,q,v],[w,p,v],[v,p,q]][i%6];
+    return [Math.round(m[0]*255), Math.round(m[1]*255), Math.round(m[2]*255)];
+  };
+  const rgb2hsv = (r,g,b)=>{
+    r/=255; g/=255; b/=255;
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
+    let h=0;
+    if(d>0){
+      if(mx===r) h=((g-b)/d+(g<b?6:0))/6;
+      else if(mx===g) h=((b-r)/d+2)/6;
+      else h=((r-g)/d+4)/6;
+    }
+    return [h, mx>0 ? d/mx : 0, mx];
+  };
+  for(let lv=0; lv<=9; lv++){
+    const base = BORT_COL[lv] || BORT_COL[0];
+    const hs = rgb2hsv(base[0], base[1], base[2]);
+    for(let k=0; k<BIT_N; k++){
+      const t = (k/(BIT_N-1))*2 - 1;                 // -1(变暗) .. 0(不变) .. +1(变亮)
+      const v = Math.max(0.04, Math.min(1, hs[2] * (1 + t*0.55)));
+      const s = Math.max(0,    Math.min(1, hs[1] * (1 + t*0.45)));
+      const h = (((hs[0] + (t>0 ? -0.035*t : 0.055*(-t))) % 1) + 1) % 1;
+      const c = hsv2rgb(h, s, v);
+      const o = (lv*BIT_N + k)*3;
+      a[o]=c[0]; a[o+1]=c[1]; a[o+2]=c[2];
+    }
+  }
+  return a;
+})();
+function biColor(lv, t){
+  const k = Math.max(0, Math.min(BIT_N-1, Math.round((t+1)/2*(BIT_N-1))));
+  const o = ((lv>0 && lv<=9 ? lv : 0)*BIT_N + k)*3;
+  _mix[0]=BI_COL[o]; _mix[1]=BI_COL[o+1]; _mix[2]=BI_COL[o+2];
+  return _mix;
+}
+const DEX_MAX = 0.45;
+function lumT(L){ const t=(Math.log10(L+0.1)-Math.log10(0.6))/(Math.log10(400)-Math.log10(0.6)); return Math.max(0,Math.min(1,t)); }
+function sgnT(d){ const s=Math.sign(d), a=Math.abs(d); return s*Math.min(1, Math.log10(1+a/0.5)/Math.log10(1+60/0.5)); }
+
+// ---- 状态 ----
+// 默认全期对比: 最早年 vs 最末年(2021 vs 2025), 与 README 主要结论口径一致
+let mode='diff', unit='log', y1=YEARS[0], y2=YEARS[YEARS.length-1];
+let gamma=1.0, bndAlpha=0.55, showLabel=true, chinaOnly=false, view={sx:0,sy:0,k:1};
+let level='province', bndMode='hover', hitIdx=-1;   // bndMode: hide | hover | all
+const CITIES=[[116.41,39.90,'北京'],[121.47,31.23,'上海'],[113.26,23.13,'广州'],[114.06,22.54,'深圳'],
+ [104.07,30.66,'成都'],[106.55,29.56,'重庆'],[108.94,34.34,'西安'],[114.30,30.59,'武汉'],
+ [120.15,30.27,'杭州'],[118.78,32.06,'南京'],[87.62,43.83,'乌鲁木齐'],[91.14,29.65,'拉萨'],
+ [126.63,45.75,'哈尔滨'],[113.62,34.75,'郑州'],[102.71,25.05,'昆明'],[117.20,39.13,'天津'],
+ [123.43,41.80,'沈阳'],[112.55,37.87,'太原'],[103.83,36.06,'兰州'],[101.78,36.62,'西宁']];
+
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const off=document.createElement('canvas'); off.width=W; off.height=H;
+const octx=off.getContext('2d');
+let offData=octx.createImageData(W,H);
+// 低置信斜纹 LOW_HATCH 已移除：县级不再做填色，斜纹没有承载对象
+// 排行方向: up=增亮(总亮度比降序) / down=变暗(升序, 且只纳入净减少单元)
+let rankDir='up';
+let lvMax=0;                          // 暗夜筛选: 0=全部, 5/4=只显示波特尔等级 <= 该值的县
+let PENDING=null;                     // hash 指定的初始视图中心 [lon,lat]
+
+// ---- 面板（移动端抽屉 / 桌面侧栏）----
+const panel=document.getElementById('panel'), phead=document.getElementById('phead');
+const grip=document.getElementById('grip');
+const isNarrow=()=>!window.matchMedia('(min-width:992px)').matches;
+function sheetPx(){
+  if(!isNarrow()) return 0;
+  const st=panel.dataset.state, vh=window.innerHeight;
+  if(st==='full')   return vh*0.92;
+  if(st==='closed') return 62;
+  return vh*0.46;
+}
+function setSheet(st){
+  panel.dataset.state=st;
+  grip.setAttribute('aria-expanded', st!=='closed' ? 'true':'false');
+  syncSheetVar();
+  requestAnimationFrame(()=>draw());
+}
+// 浮层（读数 / 缩放控件）跟随抽屉高度避让
+function syncSheetVar(){
+  document.documentElement.style.setProperty('--sheet-now', sheetPx()+'px');
+}
+function setCenter(lon,lat){
+  const cw=cv.clientWidth, ch=cv.clientHeight;
+  const k=Math.min(cw/W, ch/H)*view.k;
+  const px=(lon-WEST)/(EAST-WEST)*W*k, py=(NORTH-lat)/(NORTH-SOUTH)*H*k;
+  view.sx=W*k/2-px; view.sy=H*k/2-py; clampView(); draw();
+}
+// 抽屉遮挡补偿：未缩放时把地图中心上移到可视区中心
+function fitDY(){ return (isNarrow() && view.k<=1.02) ? -sheetPx()/2 : 0; }
+
+/* 平移/缩放边界钳制：保证地图不会被拖出屏幕后找不回来。
+   约束的是「最终渲染位置」(含 fitDY), 否则钳制会与抽屉补偿互相拉扯;
+   竖方向按抽屉遮挡后的可视带计算, 复位态因此不会被误钳。
+   语义：地图始终覆盖可视带中央 50% 以上。 */
+function clampView(){
+  const cw=cv.clientWidth, ch=cv.clientHeight;
+  if(!cw||!ch) return;
+  const base=Math.min(cw/W, ch/H), k=base*view.k, iw=W*k, ih=H*k;
+  const top=0, bot=isNarrow() ? ch-sheetPx() : ch, chEff=bot-top;
+  let ox=(cw-iw)/2+view.sx, lo=0.75*cw-iw, hi=0.25*cw;
+  ox = lo>hi ? (cw-iw)/2 : Math.min(hi, Math.max(lo, ox));      // 空区间回退居中
+  view.sx = ox-(cw-iw)/2;
+  let oy=(ch-ih)/2+view.sy+fitDY(), loy=top+0.75*chEff-ih, hiy=top+0.25*chEff;
+  oy = loy>hiy ? top+(chEff-ih)/2 : Math.min(hiy, Math.max(loy, oy));
+  view.sy = oy-(ch-ih)/2-fitDY();
+}
+
+/* stride>1 时按块采样(每 stride×stride 个像元只算一次并整块填充),
+   用于滑杆拖动中的草稿预览; stride=1 与逐像素完全等价。 */
+function render(stride){
+  stride = stride>1 ? stride : 1;
+  const A=data[y1], B=data[y2];
+  if(!A||!B) return;
+  const px=offData.data;
+  for(let y=0;y<H;y+=stride){
+    const row=y*W;
+    for(let x=0;x<W;x+=stride){
+      const i=row+x;
+      const a=A[i], b=B[i];
+      let r,g,bl, valid=true;
+      if(mode==='diff'){
+        if(Math.max(a,b) < MIN_SIG){ valid=false; }
+        else if(unit==='log'){
+          const d=Math.log10((b+EPS)/(a+EPS));
+          let t=Math.max(-1,Math.min(1,d/DEX_MAX));
+          if(gamma!==1) t = Math.sign(t)*Math.pow(Math.abs(t), gamma);
+          const c=mix(DIV,t); r=c[0];g=c[1];bl=c[2];
+        } else {
+          const d=b-a; let t=sgnT(d);
+          if(gamma!==1) t = Math.sign(t)*Math.pow(Math.abs(t), gamma);
+          const c=mix(DIV,t); r=c[0];g=c[1];bl=c[2];
+        }
+      } else if(mode==='bortle'){
+        const BA = BORTC[y2];
+        const lv = BA ? BA[i] : 0;
+        const c = BORT_COL[lv] || BORT_COL[0];
+        r=c[0]; g=c[1]; bl=c[2];
+      } else if(mode==='bi'){
+        /* 双变量: 等级定色相, 变化定冷暖明暗。
+           低于检测限的像元没有可信 Δlog, 按 t=0 处理 -> 显示纯等级色;
+           「这里很暗且无可测变化」本身就是信息, 不该被涂成无效色。 */
+        const BA = BORTC[y2];
+        const lv = BA ? BA[i] : 0;
+        let t = 0;
+        if(Math.max(a,b) >= MIN_SIG){
+          t = Math.max(-1, Math.min(1, Math.log10((b+EPS)/(a+EPS))/DEX_MAX));
+          if(gamma!==1) t = Math.sign(t)*Math.pow(Math.abs(t), gamma);
+        }
+        const c = biColor(lv, t);
+        r=c[0]; g=c[1]; bl=c[2];
+      } else {
+        const L=B[i];
+        let t=lumT(L);
+        if(gamma!==1) t=Math.pow(t,gamma);
+        const c=mix(LUM,t); r=c[0];g=c[1];bl=c[2];
+      }
+      const mv = MASK ? MASK[i] : 255;
+      if(mv < 128){                     // 境外：只作暗灰地理参照，不显示变化色
+        if(chinaOnly){ r=COFFCN[0];g=COFFCN[1];bl=COFFCN[2]; }
+        else { const t=lumT(b)*0.5; const c=mix(LUM,t);
+               r=c[0]*0.34; g=c[1]*0.34; bl=c[2]*0.34; }
+      } else if(!valid){ r=CINV[0];g=CINV[1];bl=CINV[2]; }
+      // 写入 stride×stride 块: stride=1 时与逐像素写法等价
+      for(let dy=0;dy<stride && y+dy<H;dy++){
+        let j=((y+dy)*W+x)*4;
+        for(let dx=0;dx<stride && x+dx<W;dx++){
+          px[j]=r; px[j+1]=g; px[j+2]=bl; px[j+3]=255; j+=4;
+        }
+      }
+    }
+  }
+  octx.putImageData(offData,0,0);
+  draw();
+}
+// 滑杆拖动: 同一帧内多次 input 只跑最后一次, 拖动中用 stride=2 草稿预览
+let renderRaf=0, renderDraft=false;
+function scheduleRender(draft){
+  renderDraft = renderDraft || !!draft;
+  if(renderRaf) return;
+  renderRaf = requestAnimationFrame(()=>{
+    renderRaf=0;
+    const d=renderDraft; renderDraft=false;
+    render(d?2:1);
+  });
+}
+
+function draw(){
+  const dpr=devicePixelRatio||1;
+  const cw=cv.clientWidth, ch=cv.clientHeight;
+  if(cw===0||ch===0) return;
+  if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){ cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr); }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle=CVOID; ctx.fillRect(0,0,cw,ch);
+  // fit
+  const base=Math.min(cw/W, ch/H);
+  const k=base*view.k;
+  const ox=(cw-W*k)/2+view.sx, oy=(ch-H*k)/2+view.sy+fitDY();
+  ctx.imageSmoothingEnabled = k<base*1.5;
+  ctx.drawImage(off,0,0,W,H,ox,oy,W*k,H*k);
+  /* ---------- 县市区：只做「查询单元」，不做 choropleth 填色 ----------
+     逐县单色填充会把连片同值的县糊成一个大色块, 掩盖栅格本身的细节
+     (珠三角各县 Δlog 同档 -> 整片一色, 看起来像"一个县")。
+     现在底图保留完整的 120″ 变化栅格; 县界默认不画, 鼠标悬停时才描出该县轮廓。 */
+  if(level==='district' && DIST && DPATH){
+    const showAll = bndMode==='all';
+    const showHit = bndMode!=='hide' && hitIdx>=0 && DPATH[hitIdx];
+    if(showAll || showHit){
+      ctx.save();
+      ctx.translate(ox,oy); ctx.scale(k,k);
+      ctx.lineJoin='round'; ctx.miterLimit=2;
+      if(showAll){
+        /* 屏幕空间宽度, 随缩放小幅增长(0.66 → 1.25 CSS px); 小缩放保持细, 免得糊成一团 */
+        ctx.lineWidth = Math.min(1.25, 0.55 + view.k*0.06) / k;
+        ctx.strokeStyle='rgba(200,214,230,'+(0.18+bndAlpha*0.35)+')';
+        for(let i=0;i<DM.length;i++){
+          const b=DM[i].b;
+          const x0=(b[0]-WEST)/(EAST-WEST)*W*k+ox, x1=(b[2]-WEST)/(EAST-WEST)*W*k+ox;
+          const y0=(NORTH-b[3])/(NORTH-SOUTH)*H*k+oy, y1=(NORTH-b[1])/(NORTH-SOUTH)*H*k+oy;
+          if(x1<-2||x0>cw+2||y1<-2||y0>ch+2) continue;      // 视口裁剪
+          ctx.stroke(DPATH[i]);
+        }
+      }
+      if(showHit){
+        ctx.lineWidth=2/k; ctx.strokeStyle='rgba(255,236,190,.95)';
+        ctx.stroke(DPATH[hitIdx]);
+      }
+      ctx.restore();
+    }
+  }
+
+  // 边界（省级）
+  if(bndAlpha>0.01){
+    ctx.lineWidth = level==='district' ? 1.4 : 0.9;
+    ctx.strokeStyle='rgba(190,205,220,'+bndAlpha+')';
+    for(const p of PROV){
+      ctx.beginPath();
+      for(const ring of p.rings){
+        ring.forEach((pt,i)=>{
+          const x=ox+(pt[0]-WEST)/(EAST-WEST)*W*k;
+          const y=oy+(NORTH-pt[1])/(NORTH-SOUTH)*H*k;
+          i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+        });
+        ctx.closePath();
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle='rgba(240,136,62,'+Math.min(1,bndAlpha+0.25)+')';
+    ctx.lineWidth=1.3;
+    for(const seg of ND){
+      ctx.beginPath();
+      seg.forEach((pt,i)=>{
+        const x=ox+(pt[0]-WEST)/(EAST-WEST)*W*k;
+        const y=oy+(NORTH-pt[1])/(NORTH-SOUTH)*H*k;
+        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+      });
+      ctx.stroke();
+    }
+  }
+  // 省名标注
+  if(showLabel){
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(4,7,11,.9)';
+    const small = view.k<1.25;
+    ctx.font='600 '+(small?11:13)+'px '+FONT;
+    const a=small?0.62:0.92;
+    for(const p of PROV){
+      if(!p.c) continue;
+      const x=ox+(p.c[0]-WEST)/(EAST-WEST)*W*k, y=oy+(NORTH-p.c[1])/(NORTH-SOUTH)*H*k;
+      if(x<-30||x>cw+30||y<-16||y>ch+16) continue;
+      const t=p.name.replace(/(维吾尔|壮族|回族|特别行政区|自治区|省|市)/g,'');
+      ctx.strokeText(t,x,y);
+      ctx.fillStyle='rgba(232,240,250,'+a+')';
+      ctx.fillText(t,x,y);
+    }
+    // 主要城市参照
+    ctx.textAlign='left';
+    ctx.font='500 '+(small?10:12)+'px '+FONT;
+    for(const c of CITIES){
+      const x=ox+(c[0]-WEST)/(EAST-WEST)*W*k, y=oy+(NORTH-c[1])/(NORTH-SOUTH)*H*k;
+      if(x<0||x>cw||y<0||y>ch) continue;
+      ctx.beginPath(); ctx.arc(x,y,2,0,6.283);
+      ctx.fillStyle='rgba(255,215,130,.85)'; ctx.fill();
+      ctx.strokeStyle='rgba(4,7,11,.9)'; ctx.lineWidth=1; ctx.stroke();
+      ctx.strokeText(c[2],x+5,y-5);
+      ctx.fillStyle='rgba(255,224,160,.92)'; ctx.fillText(c[2],x+5,y-5);
+    }
+  }
+  cv._view={ox,oy,k};
+}
+
+// ---- 指针交互：鼠标 / 触摸 / 双指捏合统一处理 ----
+const pointers=new Map();
+let drag=null, pinch=null, roTimer=null;
+const readout=document.getElementById('readout');
+function localPt(e){
+  const r=cv.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+// ---- 县市区命中测试: bbox 预筛 + 射线法 ----
+function ptInRings(x,y,rings){
+  let inside=false;
+  for(const ring of rings){
+    for(let i=0,j=ring.length-2;i<ring.length;j=i,i+=2){
+      const xi=ring[i], yi=ring[i+1], xj=ring[j], yj=ring[j+1];
+      if(((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+    }
+  }
+  return inside;
+}
+function hitDistAt(lon,lat){
+  if(!DIST) return -1;
+  const test=i=>{ const b=DM[i].b;
+    return lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]&&ptInRings(lon,lat,DIST[i]); };
+  if(hitIdx>=0 && test(hitIdx)) return hitIdx;      // 上次命中优先
+  for(let i=0;i<DM.length;i++) if(test(i)) return i;
+  return -1;
+}
+
+let lastPt=null;                   // 最近一次悬停点, 供波特尔图层解码完成后补绘读数
+function showReadout(pt){
+  lastPt=pt;
+  const v=cv._view; if(!v||!data[y1]) return;
+  const fx=(pt.x-v.ox)/v.k, fy=(pt.y-v.oy)/v.k;
+  const ix=Math.floor(fx), iy=Math.floor(fy);
+  if(ix<0||iy<0||ix>=W||iy>=H){
+    readout.textContent='移出范围';
+    if(hitIdx!==-1){ hitIdx=-1; draw(); }
+  }
+  else {
+    const i=iy*W+ix, a=data[y1][i], b=data[y2][i];
+    const lonS=(WEST+(ix+0.5)*(EAST-WEST)/W), latS=(NORTH-(iy+0.5)*(NORTH-SOUTH)/H);
+    const lon=lonS.toFixed(3), lat=latS.toFixed(3);
+    const d=Math.log10((b+EPS)/(a+EPS)), ratio=(b+EPS)/(a+EPS);
+    let head='';
+    if(level==='district' && DIST){
+      const hi=hitDistAt(lonS,latS);
+      if(hi!==hitIdx){ hitIdx=hi; draw(); }
+      if(hi>=0){
+        const u=DS.units[hi], pi=pairIdx(), t=pi>=0?tierOf(u,pi):0;
+        const tn=['低（灰显·不进排行）','中','高'][t];
+        head = `<div class="ro-blk"><span class="ro-h">县市区统计 · 30″ 面汇总</span>`+
+          `<b>${u.n}</b> <span class="mute">${u.p}${u.c?'':' · 无中心点'}</span><br>`+
+          (pi>=0
+            ? `${y1}→${y2} 总亮度比 <b>×${u.r[pi].toFixed(2)}</b> · Δlog ${u.d[pi]>=0?'+':''}${u.d[pi].toFixed(3)}<br>`+
+              `<span class="mute">有效像元 ${u.v[pi]} · 末年均值 ${u.m[pi].toFixed(1)} nW · `+
+              `连片亮区 ${u.k[DS.years.indexOf(y2)]} px · 置信 ${tn}</span>`
+            : `<span class="mute">该年份对无统计</span>`)+
+          `</div>`;
+      }
+    }
+    /* 波特尔等级：任何模式下都显示，给出 y1 → y2 的两级对比。
+       这是「等级 × 变化」结合的核心——同一个读数里既有现在多暗, 也有它怎么变。
+       数据按年缓存(BORTC), 未就绪时先占位, 解码完成后由 ensureBortle 回调重绘。 */
+    let bortBlk='';
+    {
+      const A = BORTC[y1], Bv = BORTC[y2];
+      const mgOf = lv => {
+        const k = (BL && BL.levels) ? BL.levels.indexOf(lv) : -1;
+        return (k>=0 && BL.mags) ? BL.mags[k] : null;
+      };
+      const cell = (lv, y) => lv===0
+        ? `<span class="mute">${y} 存疑</span>`
+        : `${y} <b>${lv} 级</b>${mgOf(lv)!=null?` <span class="mute">${mgOf(lv)} mag</span>`:''}`;
+      const la = A ? A[i] : -1, lb = Bv ? Bv[i] : -1;
+      if(la>0 || lb>0){
+        let dTxt='';
+        if(la>0 && lb>0){
+          const dd=lb-la;
+          dTxt = dd>0 ? ` · <b style="color:#e8a89a">退化 ${dd} 级</b>`
+               : dd<0 ? ` · <b style="color:#8fc7e8">改善 ${-dd} 级</b>`
+               : ` · <span class="mute">等级未变</span>`;
+        } else if(la===0 || lb===0){
+          dTxt = ` · <span class="mute">另一年为高反射存疑</span>`;
+        }
+        bortBlk = `<div class="ro-blk"><span class="ro-h">波特尔暗夜等级 · 传播积分估算</span>`+
+          `${la>=0?cell(la,y1):`${y1} <span class="mute">—</span>`} → `+
+          `${lb>=0?cell(lb,y2):`${y2} <span class="mute">—</span>`}${dTxt}<br>`+
+          `<span class="mute">已计 300 km 内城市天空辉光；非地面 SQM 实测，误差约 ±0.5–1 mag</span></div>`;
+      } else if(BL && BL.years && BL.years.length){
+        bortBlk = `<div class="ro-blk"><span class="ro-h">波特尔暗夜等级 · 传播积分估算</span>`+
+          `<span class="mute">图层解码中…</span></div>`;
+      }
+    }
+    const pxHead = head ? `<span class="ro-h">光标像元 · 120″ 显示栅格</span>` : '';
+    readout.innerHTML = bortBlk + head +
+      `<div class="ro-blk">${pxHead}<b>${lon}°E, ${lat}°N</b><br>`+
+      `${y1}: ${a.toFixed(2)} nW·cm⁻²·sr⁻¹<br>`+
+      `${y2}: ${b.toFixed(2)} nW·cm⁻²·sr⁻¹<br>`+
+      `Δlog = ${d>=0?'+':''}${d.toFixed(3)} dex（×${ratio.toFixed(2)}）`+
+      (Math.max(a,b)<MIN_SIG?`<br><span class="mute">低于检测限 · 不计入统计</span>`:'')+`</div>`;
+  }
+  readout.classList.add('show');
+  clearTimeout(roTimer);
+  if(!window.matchMedia('(hover:hover)').matches) roTimer=setTimeout(()=>readout.classList.remove('show'),2200);
+}
+function zoomAt(mx,my,f){
+  const nk=Math.max(1,Math.min(24,view.k*f)), s=nk/view.k;
+  view.sx = mx - s*(mx - view.sx);
+  view.sy = my - s*(my - view.sy);
+  view.k = nk; clampView(); draw();
+}
+cv.addEventListener('pointerdown',e=>{
+  cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, localPt(e));
+  if(pointers.size===1){
+    const p=pointers.get(e.pointerId);
+    drag={x:p.x,y:p.y,sx:view.sx,sy:view.sy}; cv.classList.add('is-drag');
+  } else if(pointers.size===2){
+    const [a,b]=[...pointers.values()];
+    pinch={d:Math.hypot(a.x-b.x,a.y-b.y),k:view.k,
+           cx:(a.x+b.x)/2, cy:(a.y+b.y)/2, sx:view.sx, sy:view.sy};
+    drag=null;
+  }
+  showReadout(localPt(e));
+});
+cv.addEventListener('pointermove',e=>{
+  const p=localPt(e);
+  if(pointers.has(e.pointerId)) pointers.set(e.pointerId,p);
+  if(pinch && pointers.size>=2){
+    const [a,b]=[...pointers.values()];
+    const nd=Math.hypot(a.x-b.x,a.y-b.y);
+    if(pinch.d>0){
+      const nk=Math.max(1,Math.min(24,pinch.k*(nd/pinch.d))), s=nk/pinch.k;
+      view.sx = pinch.cx - s*(pinch.cx - pinch.sx);
+      view.sy = pinch.cy - s*(pinch.cy - pinch.sy);
+      view.k = nk; clampView(); draw();
+    }
+    return;
+  }
+  if(drag){ view.sx=drag.sx+(p.x-drag.x); view.sy=drag.sy+(p.y-drag.y); clampView(); draw(); }
+  if(pointers.size) showReadout(p);
+  else if(window.matchMedia('(hover:hover)').matches) showReadout(p);
+});
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if(pointers.size<2) pinch=null;
+  if(pointers.size===0){ drag=null; cv.classList.remove('is-drag'); }
+}
+cv.addEventListener('pointerup',endPointer);
+cv.addEventListener('pointercancel',endPointer);
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const p=localPt(e);
+  zoomAt(p.x,p.y,e.deltaY<0?1.18:1/1.18);
+},{passive:false});
+cv.addEventListener('dblclick',()=>{view={sx:0,sy:0,k:1};draw();});
+
+// ---- 抽屉把手：点击切换 + 拖动跟手 ----
+let gStart=null, gMoved=false;
+const STATES=['closed','peek','full'];
+function gripDragStart(e){
+  if(!isNarrow()) return;
+  gStart={y:e.clientY, st:panel.dataset.state}; gMoved=false;
+  panel.classList.add('no-anim');
+  phead.setPointerCapture(e.pointerId);
+}
+function gripDragMove(e){
+  if(!gStart) return;
+  const dy=e.clientY-gStart.y;
+  if(Math.abs(dy)>4) gMoved=true;
+  const base={closed:62, peek:window.innerHeight*0.46, full:window.innerHeight*0.92}[gStart.st];
+  const h=Math.max(62, Math.min(window.innerHeight*0.92, base-dy));
+  panel.style.transform='translateY('+(window.innerHeight*0.92-h)+'px)';
+}
+function gripDragEnd(e){
+  if(!gStart) return;
+  panel.classList.remove('no-anim'); panel.style.transform='';
+  if(!gMoved){
+    const i=STATES.indexOf(gStart.st);
+    setSheet(i===0?'peek':(i===1?'full':'closed'));
+  } else {
+    const rect=panel.getBoundingClientRect();
+    const shown=window.innerHeight-rect.top;
+    const cand=[62, window.innerHeight*0.46, window.innerHeight*0.92];
+    let best=0, bd=Infinity;
+    cand.forEach((c,idx)=>{ const d=Math.abs(c-shown); if(d<bd){bd=d;best=idx;} });
+    setSheet(STATES[best]);
+  }
+  gStart=null;
+}
+grip.addEventListener('pointerdown',gripDragStart);
+grip.addEventListener('pointermove',gripDragMove);
+grip.addEventListener('pointerup',gripDragEnd);
+grip.addEventListener('pointercancel',gripDragEnd);
+phead.addEventListener('pointerdown',e=>{ if(e.target===phead||e.target.closest('h1,.sub')) gripDragStart(e); });
+phead.addEventListener('pointermove',gripDragMove);
+phead.addEventListener('pointerup',gripDragEnd);
+phead.addEventListener('pointercancel',gripDragEnd);
+
+// ---- 缩放控件 ----
+document.getElementById('zIn').onclick=()=>{zoomAt(cv.clientWidth/2,cv.clientHeight/2,1.4);};
+document.getElementById('zOut').onclick=()=>{zoomAt(cv.clientWidth/2,cv.clientHeight/2,1/1.4);};
+document.getElementById('zFit').onclick=()=>{view={sx:0,sy:0,k:1};draw();};
+
+// URL hash 可分享: #y1=2021&y2=2025&mode=abs&unit=raw&sig=1.5
+const HS=new URLSearchParams(location.hash.slice(1));
+if(HS.get('mode')) mode=HS.get('mode');
+if(HS.get('unit')) unit=HS.get('unit');
+if(HS.get('y1')&&YEARS.includes(+HS.get('y1'))) y1=+HS.get('y1');
+if(HS.get('y2')&&YEARS.includes(+HS.get('y2'))) y2=+HS.get('y2');
+if(HS.get('sig')){MIN_SIG=parseFloat(HS.get('sig'));}
+if(HS.get('cn')){chinaOnly=HS.get('cn')==='1';}
+if(HS.get('z')) view.k=Math.max(1,Math.min(24,parseFloat(HS.get('z'))));
+if(HS.get('cx')&&HS.get('cy')) PENDING=[parseFloat(HS.get('cx')),parseFloat(HS.get('cy'))];
+if(HS.get('lv')) level = HS.get('lv')==='district' ? 'district' : 'province';
+{ const bm=HS.get('bndm') || (HS.get('conf') ? 'all' : '');   // 兼容旧链接的 conf 参数
+  bndMode = ['hide','hover','all'].includes(bm) ? bm : 'hover'; }
+if(HS.get('rd')) rankDir = HS.get('rd')==='down' ? 'down' : 'up';
+if(HS.get('bmax')) lvMax = [4,5].includes(+HS.get('bmax')) ? +HS.get('bmax') : 0;
+
+// ---- 控件绑定 ----
+const $=id=>document.getElementById(id);
+const s1=$('y1'), s2=$('y2');
+YEARS.forEach(y=>{ s1.add(new Option(y+' 年',y)); s2.add(new Option(y+' 年',y)); });
+s1.value=y1; s2.value=y2;
+s1.onchange=()=>{y1=+s1.value; ensureBortle(); upd();}; s2.onchange=()=>{y2=+s2.value; ensureBortle(); upd();};
+
+function press(id,on){ $(id).setAttribute('aria-pressed', on?'true':'false'); }
+function syncMode(){
+  press('mDiff',mode==='diff'); press('mAbs',mode==='abs');
+  press('mBortle',mode==='bortle'); press('mBi',mode==='bi');
+  press('uLog',unit==='log');   press('uRaw',unit==='raw');
+  $('metricRow').style.display  = mode==='diff' ? '' : 'none';
+  if($('bortleNote')) $('bortleNote').style.display = mode==='bortle' ? '' : 'none';
+}
+$('mDiff').onclick=()=>{mode='diff';syncMode();upd();};
+$('mAbs').onclick =()=>{mode='abs'; syncMode();upd();};
+$('mBortle').onclick=()=>{ mode='bortle'; syncMode(); ensureBortle(); upd(); };
+$('mBi').onclick    =()=>{ mode='bi';     syncMode(); ensureBortle(); upd(); };
+/* 波特尔图层按需解码: 悬停读数与波特尔模式都要 y1/y2 两年, 已解过的年份不重复解。 */
+function ensureBortle(){
+  if(!BL || !BL.years || !BL.years.length) return;
+  const need = [y1, y2].filter(y=>!BORTC[y]);
+  if(!need.length) return;
+  showToast(`正在解码波特尔图层 ${need.join(' / ')}…`);
+  Promise.all(need.map(y=>decodeBortleYear(y))).then(()=>{
+    render();
+    if(lastPt) showReadout(lastPt);     // 读数已显示时立即补上等级块
+  }).catch(()=>showToast('波特尔图层加载失败'));
+}
+$('uLog').onclick =()=>{unit='log'; syncMode();upd();};
+$('uRaw').onclick =()=>{unit='raw'; syncMode();upd();};
+
+$('bnd').oninput=e=>{bndAlpha=e.target.value/100; $('bndV').textContent=e.target.value+'%'; draw();};
+$('gam').oninput=e=>{gamma=e.target.value/100; $('gamV').textContent=gamma.toFixed(2); scheduleRender(true);};
+$('sig').oninput=e=>{MIN_SIG=e.target.value/10; $('sigV').textContent=MIN_SIG.toFixed(1); scheduleRender(true);};
+// 松手后再全量重算一次, 消除草稿预览的块采样
+$('gam').onchange=()=>scheduleRender(false);
+$('sig').onchange=()=>scheduleRender(false);
+$('lblBtn').onclick=e=>{showLabel=!showLabel; press('lblBtn',showLabel); draw();};
+$('cnBtn').onclick =e=>{chinaOnly=!chinaOnly; press('cnBtn',chinaOnly); render();};
+$('sig').value=Math.round(MIN_SIG*10); $('sigV').textContent=MIN_SIG.toFixed(1);
+press('lblBtn',showLabel); press('cnBtn',chinaOnly);
+
+function syncLevel(){
+  press('lvProv', level==='province'); press('lvDist', level==='district');
+  $('distRow').style.display = level==='district' ? '' : 'none';
+  $('lvRow').style.display   = level==='district' ? '' : 'none';
+  syncBndMode();
+}
+$('lvProv').onclick=()=>{level='province'; hitIdx=-1; syncLevel(); upd();};
+$('lvDist').onclick =()=>{
+  level='district';
+  try{ ensureDist(); }
+  catch(err){ level='province'; showToast('县级边界解码失败，已退回省级视图'); }
+  syncLevel(); upd();
+};
+function syncRankDir(){
+  press('rkUp', rankDir==='up'); press('rkDown', rankDir==='down');
+}
+// 排行方向只影响表格: 不动 render()/draw(), 地图填色口径不变
+$('rkUp'  ).onclick=()=>{ rankDir='up';   syncRankDir(); rank(); };
+$('rkDown').onclick=()=>{ rankDir='down'; syncRankDir(); rank(); };
+// 暗夜筛选: 只保留波特尔等级 <= lvMax 的达标县 (0=不过滤)
+function syncLvMax(){ press('lvAll',lvMax===0); press('lv5',lvMax===5); press('lv4',lvMax===4); }
+function setLvMax(v){ lvMax=v; syncLvMax(); rank(); }
+$('lvAll').onclick=()=>setLvMax(0);
+$('lv5'  ).onclick=()=>setLvMax(5);
+$('lv4'  ).onclick=()=>setLvMax(4);
+syncLvMax();
+syncRankDir();
+function syncBndMode(){
+  press('bndHide', bndMode==='hide'); press('bndHover', bndMode==='hover'); press('bndAll', bndMode==='all');
+}
+function setBndMode(v){
+  bndMode=v; draw(); legend();
+  // 不调 upd(): 栅格像素未变(render 每次 289 万像素), 县界显示方式与排行口径正交
+}
+$('bndHide' ).onclick=()=>setBndMode('hide');
+$('bndHover').onclick=()=>setBndMode('hover');
+$('bndAll'  ).onclick=()=>setBndMode('all');
+syncBndMode();
+
+/* 刻度按色标的真实映射定位: list = [[位置%, 文本], ...]
+   亮度图是对数色标(lumT), 等距摆放会让标签与颜色对不上, 故位置一律由映射函数现算 */
+function ticksHTML(list){
+  return list.map(([p,t])=>`<span style="left:${Math.max(4,Math.min(96,p)).toFixed(1)}%">${t}</span>`).join('');
+}
+/* 双变量 2D 图例: 行 = 波特尔等级 1..9(上暗下亮), 列 = 变化 -1..+1 */
+function biLegendHTML(){
+  const NC=5, T=[-1,-0.5,0,0.5,1], LB=['变暗','','不变','','变亮'];
+  let h='<div style="display:grid;grid-template-columns:1.4em repeat('+NC+',1fr);gap:1px;align-items:center">';
+  h+='<span></span>';
+  for(let j=0;j<NC;j++)
+    h+=`<span style="text-align:center;font-size:var(--fs-2xs);color:var(--fg-dim)">${LB[j]}</span>`;
+  for(let lv=1; lv<=9; lv++){
+    h+=`<span style="font-size:var(--fs-2xs);color:var(--fg-dim);text-align:right">${lv}</span>`;
+    for(let j=0;j<NC;j++){
+      const c=biColor(lv,T[j]);
+      h+=`<i style="height:12px;border-radius:2px;background:rgb(${c[0]},${c[1]},${c[2]})"></i>`;
+    }
+  }
+  return h+'</div>';
+}
+function legend(){
+  const el=$('legend'), tk=$('ticks'), nt=$('legendNote'), key=$('tierKey');
+  let css='', ticks=[];
+  el.className = mode==='bi' ? 'bi' : '';
+  if(mode!=='bi') el.innerHTML='';        // 从双变量切走时清掉 2D 矩阵
+  if(mode==='bi'){
+    css='none';
+    el.innerHTML=biLegendHTML();
+    nt.innerHTML=`<b>双变量着色：波特尔等级 × ${y1}→${y2} 变化</b>`+
+      `<br><b>色相 = 现在的暗夜等级</b>（${y2} 年，传播积分估算）：深蓝 → 青 → 土黄 → 暖白 对应 1 级 → 9 级。`+
+      `<br><b>冷暖明暗 = 变化</b>：变亮 → 更亮、更艳、偏暖；变暗 → 更暗、更灰、偏冷；中间列 = 基本不变。`+
+      `<br>低于检测限的像元没有可信 Δlog，按「不变」处理，显示为纯等级色。`+
+      `<br><b>读法：</b>上排（等级小＝暗）才是暗夜区。<b>上排右端 = 暗夜且正在变亮</b>，是资源流失最该盯的地方；`+
+      `<b>上排左端 = 暗夜且变暗或稳定</b>，是最优候选点。`+
+      `<br><span class="mute">注：1–3 级的基准色本身已接近黑，冷暖差异会被压缩；等级越高（越亮），双变量对比越明显。</span>`;
+    el.setAttribute('aria-label','二维色标：纵轴波特尔等级 1 至 9 级，横轴变化由变暗到变亮');
+  } else if(mode==='bortle'){
+    const LV=[1,3,4,5,6,7,8,9];
+    css=`linear-gradient(90deg,${LV.map((lv,k)=>
+        `rgb(${BORT_COL[lv].join(',')}) ${Math.round(k/(LV.length-1)*100)}%`).join(',')})`;
+    ticks=[[0,'1'],[16.7,'3'],[33.3,'4'],[50,'5'],[66.7,'6'],[83.3,'7'],[100,'9']];
+    const isProp = !BL || BL.method!=='table';
+    nt.innerHTML=`<b>波特尔暗夜等级（${isProp?'传播积分估算':'查表法估算'}）</b>：`+
+      (isProp
+        ? `由 ${y2} 年 VIIRS 地表辐亮度经<b>大气散射传播积分</b>换算为天顶天空亮度，`+
+          `已计半径 300 km 内所有城市的天空辉光。`
+        : `由 ${y2} 年 VIIRS 地表辐亮度按经验阈值映射，<b>未计</b>远处城市天空辉光，城市近郊会被系统性低估。`)+
+      `<b>不是地面 SQM 实测</b>，误差约 ±0.5–1 mag/arcsec²。`+
+      `<br><span style="color:rgb(96,96,102)">■</span> 灰色 = 高反射地表（盐湖/积雪/裸岩）或孤立伪信号，等级不可信。`+
+      `<br><b>1 级不可达：</b>自然本底 0.25 mcd/m² 对应 21.60 mag，低于 1 级阈值 21.7 mag——`+
+      `中国境内几乎没有真正的 1 级天空。`+
+      (isProp && BL && BL.years && BL.years.length>1
+        ? `<br><b>已载入 ${BL.years[0]}–${BL.years[BL.years.length-1]} 共 ${BL.years.length} 年</b>，`+
+          `悬停任意位置可读出该点 y1 → y2 的等级变化。` : '');
+    el.setAttribute('aria-label','色标：波特尔 1 至 9 级');
+  } else if(mode==='diff'&&unit==='log'){
+    css=`linear-gradient(90deg,${DIV.map(s=>`rgb(${s[1].map(Math.round).join(',')}) ${Math.round((s[0]+1)/2*100)}%`).join(',')})`;
+    ticks=[[0,'−0.45'],[25,'−0.22'],[50,'0'],[75,'+0.22'],[100,'+0.45']];
+    nt.innerHTML='Δ = log₁₀((L₂+ε)/(L₁+ε))，单位 dex。<b>+0.45 ≈ 增至 2.8 倍</b>，−0.45 ≈ 降至 1/2.8。暖色=变亮，冷色=变暗，底色区=低于检测限。';
+    el.setAttribute('aria-label','色标：冷色变暗，暖色变亮');
+  } else if(mode==='diff'){
+    css=`linear-gradient(90deg,${DIV.map(s=>`rgb(${s[1].map(Math.round).join(',')}) ${Math.round((s[0]+1)/2*100)}%`).join(',')})`;
+    ticks=[[0,'−60'],[25,'−5'],[50,'0'],[75,'+5'],[100,'+60']];
+    nt.innerHTML='绝对差 ΔL = L₂ − L₁，nW·cm⁻²·sr⁻¹，符号对数压缩显示。城市核心会主导该指标。';
+    el.setAttribute('aria-label','色标：绝对差');
+  } else {
+    css=`linear-gradient(90deg,${LUM.map(s=>`rgb(${s[1].map(Math.round).join(',')}) ${Math.round(s[0]*100)}%`).join(',')})`;
+    ticks=[[lumT(0.6)*100,'0.6'],[lumT(1)*100,'1'],[lumT(10)*100,'10'],
+           [lumT(100)*100,'100'],[lumT(400)*100,'400']];
+    nt.innerHTML=`${y2} 年夜间灯光辐亮度，nW·cm⁻²·sr⁻¹，对数色标（两端即 ≤0.6 与 ≥400 nW 的饱和边界）。`;
+    el.setAttribute('aria-label','色标：年度辐亮度对数');
+  }
+  if(level==='district'){
+    nt.innerHTML += `<br><b>县级图层只做「查询单元」，不做填色：</b>底图保留完整的 120″ 变化栅格，`+
+      `县界默认不画——鼠标悬停到某个县市区时才描出它的轮廓，并在读数里给出该县的 30″ 分区统计。`+
+      `<br>这样避免了「逐县单色填充把连片同值的县糊成一个大色块」：珠三角各县 Δlog 同档，`+
+      `填色后整片一色、看起来像同一个县，栅格本身的细节全被盖住。`+
+      `<br><b>置信档</b>（高 / 中 / 低）不再影响地图显示，改由悬停读数与排行表行首圆点承载；`+
+      `排行恒排除低置信单元（三重门限：有效像元 ≥200、末年均值 ≥3 nW、所属连片亮区 ≥500 像元）。`+
+      `<br><b>县界显示</b>可切换：隐藏 / 悬停（默认）/ 全部。`+
+      `<br><b>双口径：</b>县级统计用 30″ 分区；底图栅格与光标逐点读数用 120″ 显示栅格，两者同源但聚合层级不同，不应逐值对照。`;
+  }
+  el.style.background=css;
+  tk.innerHTML=ticksHTML(ticks);
+  // 排行表行首圆点的置信含义（地图已不再填色，故这不再是「填色图例」）
+  if(level==='district'){
+    key.hidden=false;
+    key.innerHTML=
+      `<span><i style="background:${TIER_DOT[2]}"></i>高置信</span>`+
+      `<span><i style="background:${TIER_DOT[1]}"></i>中置信</span>`+
+      `<span><i style="background:${TIER_DOT[0]}"></i>低置信 · 不进排行</span>`;
+  } else key.hidden=true;
+}
+
+const shortName=n=>n.replace(/(维吾尔自治区|回族自治区|壮族自治区|特别行政区|自治区|省|市)$/,'');
+const TIER_DOT=['#7C8A9E','#E3B341','#3FB950'];
+function rank(){
+  const tb=document.querySelector('#rank tbody');
+  const down = rankDir==='down';
+  $('rank').className = level==='district' ? 'dist' : 'no-lv';
+  if(level==='district'){
+    const pi=pairIdx();
+    $('rankTitle').textContent = down?'县市区变暗排行':'县市区增亮排行';
+    $('cnameHead').textContent='县市区';
+    if(pi<0){
+      tb.innerHTML='';
+      $('rankSub').textContent=`${y1} → ${y2} · 无县级统计`;
+      $('rankNote').textContent='所选年份顺序没有预计算的县级统计，请选择较早的基准年。地图仅显示 120″ 栅格底图。';
+      return;
+    }
+    // 排行恒排除低置信单元: 地图「置信显示」只控制填色范围, 不影响排行口径
+    const yi  = DS.years.indexOf(y2), yi0 = DS.years.indexOf(y1);
+    const lvOf = u => (u.lv && yi>=0) ? u.lv[yi] : 0;
+    const eligible=DS.units.map((u,i)=>({u,i,t:tierOf(u,pi),band:sampleBand(u.v[pi])}))
+                           .filter(o=>o.t>0 && o.band && (down ? o.u.r[pi]<1 : true)
+                                   && (lvMax===0 || (lvOf(o.u)>0 && lvOf(o.u)<=lvMax)));
+    let html='';
+    for(const band of RANK_BANDS){
+      const inBand=eligible.filter(o=>o.band.id===band.id);
+      const rows=inBand.slice()
+        .sort((a,b)=>(down? a.u.r[pi]-b.u.r[pi] : b.u.r[pi]-a.u.r[pi])
+                || b.u.v[pi]-a.u.v[pi] || String(a.u.a).localeCompare(String(b.u.a)))
+        .slice(0,RANK_LIMIT);
+      const mx=Math.max(...rows.map(o=>Math.abs(o.u.r[pi]-1)),0.05);   // 条形图档内归一化
+      html+=`<tr class="band"><th scope="rowgroup" colspan="5">样本 ${band.id} · ${band.label} 个有效像元 · ${inBand.length} 个</th></tr>`;
+      html+= rows.length ? rows.map(o=>{
+        const w=Math.abs(o.u.r[pi]-1)/mx*34;
+        const cls=o.u.r[pi]>=1?'pos':'neg';
+        const bv=lvOf(o.u), bv0=(o.u.lv && yi0>=0) ? o.u.lv[yi0] : 0;
+        const lvCell = bv>0
+          ? `<b>${bv}</b> 级`+(bv0>0 && bv!==bv0
+              ? (bv>bv0 ? ` <span style="color:#e8a89a" title="${y1} 为 ${bv0} 级，等级升高">↑</span>`
+                        : ` <span style="color:#8fc7e8" title="${y1} 为 ${bv0} 级，等级降低">↓</span>`)
+              : '')
+          : `<span class="mute" title="120″ 网格下样本不足 3 个像元">—</span>`;
+        return `<tr data-i="${o.i}" title="${o.u.p} · ${o.u.n} · 有效像元 ${o.u.v[pi]} · 样本档 ${o.band.id} · 波特尔 ${bv||'—'} 级">`+
+          `<td class="pname"><span style="color:${TIER_DOT[o.t]}">●</span> ${o.u.n}</td>`+
+          `<td class="lvcol">${lvCell}</td>`+
+          `<td>${o.u.d[pi]>=0?'+':''}${o.u.d[pi].toFixed(3)}</td>`+
+          `<td>×${o.u.r[pi].toFixed(2)}</td>`+
+          `<td style="width:40px"><span class="bar ${cls}" style="width:${w.toFixed(1)}px"></span></td></tr>`;
+      }).join('') : `<tr class="empty"><td colspan="5">${down?'该档暂无净减少的单元。':(lvMax?`该档暂无等级 ≤${lvMax} 的达标单元。`:'该档暂无通过三重置信门限的单元。')}</td></tr>`;
+    }
+    const dirTxt = down?'降幅升序 · 仅纳入总亮度比 < 1 者':'增幅降序';
+    $('rankSub').textContent=`${y1} → ${y2} · ${down?'变暗':'达标'} ${eligible.length} / ${DS.units.length} 个单元 · ${dirTxt}`+
+      (lvMax?` · 仅波特尔 ≤${lvMax} 级`:'')+` · 各样本档前 ${RANK_LIMIT}`;
+    tb.innerHTML=html;
+    $('rankNote').innerHTML =
+      `总亮度比 = 该县市区有效像元辐亮度总和之比。<b>不是</b>单个栅格倍数。<br>`+
+      `<b>三重门限：</b>有效像元 ≥200、末年有效像元均值 ≥3 nW、所属最大连片亮区 ≥500 像元，缺一即判为低置信（<span style="color:${TIER_DOT[0]}">●</span>）`+
+      `并灰显、不进排行。高置信（<span style="color:${TIER_DOT[2]}">●</span>）需 ≥1000 像元 / ≥5 nW / ≥2000 像元连片。`+
+      `<br>该门拦已在 2021→2025 剔除黑龙江肇源县（×36.66，大庆油田火炬，连片亮区仅 176 像元）等伪信号。`+
+      `<br>县级指标按 MIN_SIG = ${DS.min_sig} nW 预计算，<b>不随「信号下限」滑杆变化</b>。`+
+      `<br><b>为何分档：</b>2875 个单元直接取 Top-N 等价于从 2875 次抽样里挑最大值，必然选中极端样本。`+
+      `故先按 30″ 有效像元数分样本档（A ≥1,000 / B 500–999 / C 200–499），<b>档内</b>再按总亮度比降序，条形图也在档内归一化。`+
+      `<br>样本档<b>不等于</b>置信档：A 档内可能同时有高置信与中置信单元（见行首圆点）。地图「置信显示」只控制填色范围，不改变榜单。`+
+      (down?`<br><b>变暗口径：</b>只纳入总亮度比 &lt; 1（净减少）的单元，按升序取各档前 ${RANK_LIMIT}；`+
+       `亮度小幅回升（&gt;1）者不出现在变暗榜。`:'')+
+      `<br><b>等级列：</b>该县市区在 120″ 波特尔等级图层（传播积分估算，已计 300 km 外城市天空辉光）上`+
+      `覆盖像元的<b>中位数</b>。↑/↓ 表示 ${y1} → ${y2} 等级升高（光害加重）/ 降低。`+
+      `「—」= 120″ 网格下不足 3 个像元，多为面积过小的中心城区。`+
+      `<br><b>暗夜筛选：</b>「≤4 级」对应天顶亮度 20.4 mag 以上，是天文观测的常用门槛。`+
+      `筛选后各样本档仍取前 ${RANK_LIMIT}，可用来找「还够暗、且正在变亮」的候选县。`;;
+    return;
+  }
+  $('rankTitle').textContent = down?'省级变暗排行':'省级增亮排行';
+  $('cnameHead').textContent='省 / 区';
+  const rowsAll=S.rows.filter(r=>r.base_year===y1&&r.cmp_year===y2 && (down ? r.sum_ratio<1 : true));
+  const rows=rowsAll.slice().sort((a,b)=> down ? a.sum_ratio-b.sum_ratio : b.sum_ratio-a.sum_ratio);
+  $('rankSub').textContent=`${y1} → ${y2} · ${down?'净减少':'全部'} ${rows.length} 个省级单元 · 按全省灯光总亮度比${down?'升序':'降序'}`;
+  if(!rows.length){
+    tb.innerHTML=`<tr class="empty"><td colspan="5">${down?'该年份对没有净减少的省级单元。':'该年份对无省级统计。'}</td></tr>`;
+    $('rankNote').textContent=`总亮度比 = 该省有效像元辐亮度总和之比，小于 1 即为净减少。`;
+    return;
+  }
+  const mx=Math.max(...rows.map(r=>Math.abs(r.sum_ratio-1)),0.05);
+  tb.innerHTML = rows.map(r=>{
+    const w=Math.abs(r.sum_ratio-1)/mx*34;
+    const cls=r.sum_ratio>=1?'pos':'neg';
+    return `<tr><td class="pname" title="${r.province}">${shortName(r.province)}</td>`+
+      `<td>${r.mean_log_delta>=0?'+':''}${r.mean_log_delta.toFixed(3)}</td>`+
+      `<td>×${r.sum_ratio.toFixed(2)}</td>`+
+      `<td style="width:40px"><span class="bar ${cls}" style="width:${w.toFixed(1)}px"></span></td></tr>`;
+  }).join('');
+  $('rankNote').innerHTML =
+    `总亮度比 = 该省有效像元辐亮度总和之比。<b>不是</b>单个栅格倍数——`+
+    `后者西藏为 ×2.29，而全省总量仅 ×1.58，两者不可混用。`+
+    (down?`<br><b>变暗口径：</b>只列出总亮度比 &lt; 1 的省级单元，按升序排列。`+
+          (rows.length<=3?` <b>本年份对仅 ${rows.length} 个省级单元净减少</b>——近乎普遍变亮本身就是结论；`
+                         :'')
+         :`<br>省市中心区的撤灯、LED 替换与统计回落都会落在这一侧，注意区分。`);
+}
+// 点击排行行 -> 飞行到该单元
+document.querySelector('#rank tbody').addEventListener('click',e=>{
+  const tr=e.target.closest('tr[data-i]'); if(!tr) return;
+  const u=DS.units[+tr.dataset.i];
+  hitIdx=+tr.dataset.i;
+  if(u && u.c) setCenter(u.c[0],u.c[1]);
+  else draw();
+  if(isNarrow()) setSheet('closed');
+});
+
+function upd(){
+  render(); legend(); rank();
+  $('mhState').textContent = mode==='diff'
+    ? `${y1} → ${y2} · ${unit==='log'?'对数比值':'绝对差'}`
+    : mode==='bortle' ? `${y2} 年波特尔等级`
+    : mode==='bi' ? `${y2} 年等级 × ${y1}→${y2} 变化` : `${y2} 年亮度`;
+}
+const nextFrame = ()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+showBoot('正在解码年度栅格…');
+let decoded=0;
+Promise.all([decodeMask()].concat(YEARS.map(y=>
+    decode(y).then(()=>{ showBoot(`正在解码年度栅格 ${++decoded}/${YEARS.length}…`); }))))
+  .then(()=>nextFrame())                       // 让覆盖层真正出帧, 再开始同步重活
+  .then(()=>{
+    if(level==='district'){
+      showBoot('正在解码县级边界…');
+      try{ ensureDist(); }catch(err){ level='province'; showToast('县级边界解码失败，已退回省级视图'); }
+      return nextFrame();
+    }
+  })
+  .then(()=>{
+    showBoot('正在生成地图…');
+    return nextFrame();
+  })
+  .then(()=>{
+    // URL 直接指定 mode=bortle/bi 时, 先解该年份图层再首帧渲染, 否则开局会是一片灰
+    if((mode==='bortle' || mode==='bi') && BL && BL.layers && BL.layers[y2]){
+      showBoot('正在解码波特尔图层…');
+      return decodeBortleYear(y2).then(()=>nextFrame()).catch(()=>{});
+    }
+  })
+  .then(()=>{
+    syncMode(); syncLevel(); upd();
+    if(PENDING) setCenter(PENDING[0],PENDING[1]);
+    if(!window.matchMedia('(hover:hover)').matches)
+      $('hint').textContent='双指缩放 · 拖动平移 · 双击复位';
+    syncSheetVar();
+    addEventListener('resize',()=>{syncSheetVar();draw();});
+    addEventListener('orientationchange',()=>setTimeout(()=>{syncSheetVar();draw();},250));
+    window.matchMedia('(min-width:992px)').addEventListener('change',()=>{syncSheetVar();draw();});
+    if(window.ResizeObserver) new ResizeObserver(()=>draw()).observe(document.getElementById('main'));
+    hideBoot();
+    /* 空闲时后台预解码波特尔图层: 悬停读数要用 y1/y2 两年,
+       不预解码则每次刷新后首次悬停只看到"图层解码中…"。失败静默, 悬停时还会再试。 */
+    setTimeout(()=>{ if(BL && BL.layers) [y1,y2].forEach(y=>decodeBortleYear(y).catch(()=>{})); }, 1200);
+  })
+  .catch(err=>showBoot('数据解码失败：'+(err && err.message || err), true));
+</script>
+</body>
+</html>

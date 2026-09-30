@@ -1,0 +1,13 @@
+# 中国夜间灯光变化地图 2021-2025 · 流水线依赖
+# 版本为本机实测值(2026-09-30, Python 3.13), 仅 scripts/ 下的计算脚本需要。
+#
+#   PY=/Users/mz/.workbuddy/binaries/python/envs/default/bin/python
+#   $PY -m pip install -r requirements.txt
+#
+# 说明: scripts/download.py 只依赖标准库, 不需要下面任何一项。
+
+numpy==2.4.6          # 数组计算, 全链路
+rasterio==1.5.1       # GeoTIFF 读写 / 重投影 / rasterize / geometry_mask
+shapely==2.1.2        # 边界几何简化、九段线处理
+pillow==12.2.0        # 16bit 拆 R/G 通道 PNG 打包、境内 mask
+scipy==1.17.1         # ndimage.label 连片亮区(县级置信第三道门限)
